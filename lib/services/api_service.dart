@@ -1,0 +1,1018 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import '../models/slider_model.dart';
+
+class ApiService {
+  // Candidate base URLs for live production, physical devices, emulators, and local desktop testing
+  static const List<String> candidateBaseUrls = [
+    'http://mbanglapatenteb.com/api/v1',
+    'https://mbanglapatenteb.com/api/v1',
+    'http://192.168.42.29:8000/api/v1',  // Active PC WiFi IP
+    'http://192.168.0.100:8000/api/v1',  // Active PC LAN IP
+    'http://10.0.2.2:8000/api/v1',       // Android Emulator
+    'http://127.0.0.1:8000/api/v1',
+    'http://localhost:8000/api/v1',
+  ];
+
+  static String? _resolvedBaseUrl;
+
+  /// Initialize server configuration by probing candidate URLs and fetching active settings
+  static Future<void> initServerConfig() async {
+    for (final base in candidateBaseUrls) {
+      try {
+        final uri = Uri.parse('$base/settings');
+        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 1800));
+        if (response.statusCode == 200) {
+          final decoded = json.decode(response.body);
+          if (decoded is Map<String, dynamic>) {
+            _checkAndApplyServerMode(decoded, currentCandidate: base);
+            return;
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
+  /// Inspect setting response payload to set server mode & active base URL dynamically
+  static void _checkAndApplyServerMode(Map<String, dynamic> data, {String? currentCandidate}) {
+    final mode = (data['server_mode'] ?? data['qr_target_mode'] ?? '').toString().toLowerCase();
+    final liveUrl = (data['live_server_url'] ?? data['qr_live_url'] ?? 'http://mbanglapatenteb.com').toString();
+
+    if (mode == 'live') {
+      final cleanLiveUrl = liveUrl.endsWith('/') ? liveUrl.substring(0, liveUrl.length - 1) : liveUrl;
+      final liveApiBase = '$cleanLiveUrl/api/v1';
+      _resolvedBaseUrl = liveApiBase;
+      debugPrint('📢 Admin Server Mode set to LIVE: $_resolvedBaseUrl');
+    } else if (currentCandidate != null) {
+      _resolvedBaseUrl = currentCandidate;
+      debugPrint('📢 Admin Server Mode set to LOCAL: $_resolvedBaseUrl');
+    }
+  }
+
+  /// Get the active base URL
+  static String get baseUrl => _resolvedBaseUrl ?? candidateBaseUrls.first;
+
+  /// Standard HTTP Headers as specified in API Documentation
+  static Map<String, String> get defaultHeaders => {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      };
+
+  /// Helper to convert relative image path (/uploads/...) to full absolute HTTP URL
+  static String formatImageUrl(String? path) {
+    if (path == null || path.trim().isEmpty) return '';
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    if (path.startsWith('file://')) return '';
+    final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
+    final cleanPath = path.startsWith('/') ? path : '/$path';
+    final result = '$serverOrigin$cleanPath';
+    if (!result.startsWith('http://') && !result.startsWith('https://')) return '';
+    return result;
+  }
+
+  static final Map<String, http.Response> _apiResponseCache = {};
+
+  /// Helper to perform HTTP GET with dynamic candidate URL resolution & fallback
+  static Future<http.Response?> _getWithFallback(String endpoint, {Map<String, String>? queryParameters}) async {
+    final cacheKey = '$endpoint?${queryParameters?.entries.map((e) => '${e.key}=${e.value}').join('&') ?? ''}';
+    if (_apiResponseCache.containsKey(cacheKey)) {
+      return _apiResponseCache[cacheKey];
+    }
+
+    if (_resolvedBaseUrl != null) {
+      try {
+        final uri = Uri.parse('$_resolvedBaseUrl$endpoint').replace(queryParameters: queryParameters);
+        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 3));
+        if (response.statusCode == 200) {
+          _apiResponseCache[cacheKey] = response;
+          return response;
+        }
+      } catch (_) {
+        _resolvedBaseUrl = null;
+      }
+    }
+
+    for (final base in candidateBaseUrls) {
+      try {
+        final uri = Uri.parse('$base$endpoint').replace(queryParameters: queryParameters);
+        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 1500));
+        if (response.statusCode == 200) {
+          _resolvedBaseUrl = base;
+          _apiResponseCache[cacheKey] = response;
+          debugPrint('Active API Base URL resolved: $base');
+          return response;
+        }
+      } catch (e) {
+        debugPrint('Candidate URL $base failed for GET $endpoint');
+      }
+    }
+    return null;
+  }
+
+  /// Helper to perform HTTP POST with dynamic candidate URL resolution & fallback
+  static Future<http.Response?> _postWithFallback(String endpoint, Map<String, dynamic> body) async {
+    if (_resolvedBaseUrl != null) {
+      try {
+        final uri = Uri.parse('$_resolvedBaseUrl$endpoint');
+        final response = await http
+            .post(uri, headers: defaultHeaders, body: json.encode(body))
+            .timeout(const Duration(seconds: 3));
+        if (response.statusCode == 200 || response.statusCode == 201) return response;
+      } catch (_) {
+        _resolvedBaseUrl = null;
+      }
+    }
+
+    for (final base in candidateBaseUrls) {
+      try {
+        final uri = Uri.parse('$base$endpoint');
+        final response = await http
+            .post(uri, headers: defaultHeaders, body: json.encode(body))
+            .timeout(const Duration(milliseconds: 1500));
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          _resolvedBaseUrl = base;
+          debugPrint('Active API Base URL resolved: $base');
+          return response;
+        }
+      } catch (e) {
+        debugPrint('Candidate URL $base failed for POST $endpoint');
+      }
+    }
+    return null;
+  }
+
+  /// Helper to perform HTTP DELETE with dynamic candidate URL resolution & fallback
+  static Future<http.Response?> _deleteWithFallback(String endpoint) async {
+    if (_resolvedBaseUrl != null) {
+      try {
+        final uri = Uri.parse('$_resolvedBaseUrl$endpoint');
+        final response = await http.delete(uri, headers: defaultHeaders).timeout(const Duration(seconds: 3));
+        if (response.statusCode == 200 || response.statusCode == 204) return response;
+      } catch (_) {
+        _resolvedBaseUrl = null;
+      }
+    }
+
+    for (final base in candidateBaseUrls) {
+      try {
+        final uri = Uri.parse('$base$endpoint');
+        final response = await http.delete(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 1500));
+        if (response.statusCode == 200 || response.statusCode == 204) {
+          _resolvedBaseUrl = base;
+          debugPrint('Active API Base URL resolved: $base');
+          return response;
+        }
+      } catch (e) {
+        debugPrint('Candidate URL $base failed for DELETE $endpoint');
+      }
+    }
+    return null;
+  }
+
+  /// Extract list data from standard JSON response
+  static List<dynamic> _extractList(http.Response? response) {
+    if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
+      try {
+        final decoded = json.decode(response.body);
+        if (decoded is List) return decoded;
+        if (decoded is Map<String, dynamic> && decoded['data'] is List) {
+          return decoded['data'] as List<dynamic>;
+        }
+      } catch (e) {
+        debugPrint('Error parsing JSON list response: $e');
+      }
+    }
+    return [];
+  }
+
+  /// Extract map data from standard JSON response
+  static Map<String, dynamic>? _extractMap(http.Response? response) {
+    if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
+      try {
+        final decoded = json.decode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          if (decoded['data'] is Map<String, dynamic>) {
+            return decoded['data'] as Map<String, dynamic>;
+          }
+          return decoded;
+        }
+      } catch (e) {
+        debugPrint('Error parsing JSON map response: $e');
+      }
+    }
+    return null;
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 1. Sliders & Banners API
+  // ─────────────────────────────────────────────────────
+  /// GET /api/v1/sliders
+  static Future<List<SliderModel>> fetchSliders() async {
+    try {
+      final response = await _getWithFallback('/sliders');
+      final list = _extractList(response);
+      return list.map((e) => SliderModel.fromJson(e)).toList();
+    } catch (e) {
+      debugPrint('Error fetching sliders: $e');
+      return [];
+    }
+  }
+
+  static Future<List<String>> fetchDashboardBanners() async {
+    final sliders = await fetchSliders();
+    if (sliders.isNotEmpty) {
+      return sliders.map((s) => s.imageUrl).where((url) => url.isNotEmpty).toList();
+    }
+    return [];
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 2. Test & Practice Quiz API
+  // ─────────────────────────────────────────────────────
+  /// GET /api/v1/test/questions
+  static Future<List<dynamic>> fetchTestQuestions({int limit = 30, int? chapterId}) async {
+    try {
+      final queryParams = <String, String>{'limit': limit.toString()};
+      if (chapterId != null) {
+        queryParams['chapter_id'] = chapterId.toString();
+      }
+      final response = await _getWithFallback('/test/questions', queryParameters: queryParams);
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching test questions: $e');
+      return [];
+    }
+  }
+
+  /// POST /api/v1/test/submit
+  static Future<bool> submitTestResult(Map<String, dynamic> payload) async {
+    try {
+      final response = await _postWithFallback('/test/submit', payload);
+      return response != null && (response.statusCode == 200 || response.statusCode == 201);
+    } catch (e) {
+      debugPrint('Error submitting test result: $e');
+      return false;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 3. Argomenti API (Theory Chapters & Pages)
+  // ─────────────────────────────────────────────────────
+  /// GET /api/v1/chapters
+  static Future<List<dynamic>> fetchChapters() async {
+    try {
+      final response = await _getWithFallback('/chapters');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching chapters: $e');
+      return [];
+    }
+  }
+
+  /// GET /api/v1/chapters/{id}/pages
+  static Future<List<dynamic>> fetchChapterPages(int chapterId) async {
+    try {
+      final response = await _getWithFallback('/chapters/$chapterId/pages');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching chapter pages: $e');
+      return [];
+    }
+  }
+
+  /// GET /api/v1/pages/all
+  static Future<List<dynamic>> fetchAllPages() async {
+    try {
+      final response = await _getWithFallback('/pages/all');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching all pages: $e');
+      return [];
+    }
+  }
+
+  /// GET /api/v1/pages/{id}
+  static Future<Map<String, dynamic>?> fetchPageDetails(int pageId) async {
+    try {
+      final response = await _getWithFallback('/pages/$pageId');
+      return _extractMap(response);
+    } catch (e) {
+      debugPrint('Error fetching page details: $e');
+      return null;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 4. E-Class & Lezioni Video API
+  // ─────────────────────────────────────────────────────
+  /// GET /api/v1/eclass
+  static Future<List<dynamic>> fetchEClasses() async {
+    try {
+      final response = await _getWithFallback('/eclass');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching eclasses: $e');
+      return [];
+    }
+  }
+
+  /// GET /api/v1/lezioni
+  static Future<List<dynamic>> fetchLezioni() async {
+    try {
+      final response = await _getWithFallback('/lezioni');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching lezioni: $e');
+      return [];
+    }
+  }
+
+  /// GET /api/v1/lezioni/{id}
+  static Future<Map<String, dynamic>?> fetchLezioneDetails(int lezioneId) async {
+    try {
+      final response = await _getWithFallback('/lezioni/$lezioneId');
+      return _extractMap(response);
+    } catch (e) {
+      debugPrint('Error fetching lezione details: $e');
+      return null;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 5. Cartelli API (Traffic Signs Catalog)
+  // ─────────────────────────────────────────────────────
+  /// GET /api/v1/cartelli/categories
+  static Future<List<dynamic>> fetchCartelliCategories() async {
+    try {
+      final response = await _getWithFallback('/cartelli/categories');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching cartelli categories: $e');
+      return [];
+    }
+  }
+
+  /// GET /api/v1/cartelli/chapters/{categoryId?}
+  static Future<List<dynamic>> fetchCartelliChapters([int? categoryId]) async {
+    try {
+      final endpoint = categoryId != null ? '/cartelli/chapters/$categoryId' : '/cartelli/chapters';
+      final response = await _getWithFallback(endpoint);
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching cartelli chapters: $e');
+      return [];
+    }
+  }
+
+  /// GET /api/v1/cartelli/pages/{chapterId}
+  static Future<List<dynamic>> fetchCartelliPages(int chapterId) async {
+    try {
+      final response = await _getWithFallback('/cartelli/pages/$chapterId');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching cartelli pages: $e');
+      return [];
+    }
+  }
+
+  /// GET /api/v1/cartelli/page-mcqs/{pageId}
+  static Future<List<dynamic>> fetchCartelliPageMcqs(int pageId) async {
+    try {
+      final response = await _getWithFallback('/cartelli/page-mcqs/$pageId');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching cartelli page MCQs: $e');
+      return [];
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 6. Dizionario API (Italian-Bangla Dictionary)
+  // ─────────────────────────────────────────────────────
+  /// GET /api/v1/dizionario
+  static Future<List<dynamic>> fetchDictionary({String query = '', String search = ''}) async {
+    try {
+      final searchTerm = query.isNotEmpty ? query : search;
+      final queryParams = searchTerm.isNotEmpty ? {'query': searchTerm, 'search': searchTerm} : null;
+      final response = await _getWithFallback('/dizionario', queryParameters: queryParams);
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching dictionary: $e');
+      return [];
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 7. Scheda Esame API (Official 30 MCQs Exam Simulation)
+  // ─────────────────────────────────────────────────────
+  /// GET /api/v1/scheda-esame/generate
+  static Future<List<dynamic>> generateSchedaEsame() async {
+    try {
+      final response = await _getWithFallback('/scheda-esame/generate') ?? await _getWithFallback('/scheda-esame/sheets');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error generating scheda esame: $e');
+      return [];
+    }
+  }
+
+  /// POST /api/v1/scheda-esame/submit
+  static Future<Map<String, dynamic>?> submitSchedaEsame(Map<String, dynamic> payload) async {
+    try {
+      final response = await _postWithFallback('/scheda-esame/submit', payload);
+      return _extractMap(response);
+    } catch (e) {
+      debugPrint('Error submitting scheda esame: $e');
+      return null;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 8. Sfida Speed Challenge API
+  // ─────────────────────────────────────────────────────
+  /// GET /api/v1/sfida/questions
+  static Future<List<dynamic>> fetchSfidaQuestions() async {
+    try {
+      final response = await _getWithFallback('/sfida/questions');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching sfida questions: $e');
+      return [];
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 9. Saved MCQs & Notes API
+  // ─────────────────────────────────────────────────────
+  /// GET /api/v1/saved-mcqs
+  static Future<List<dynamic>> fetchSavedMcqs() async {
+    try {
+      final response = await _getWithFallback('/saved-mcqs');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching saved mcqs: $e');
+      return [];
+    }
+  }
+
+  /// POST /api/v1/saved-mcqs/toggle
+  static Future<bool> toggleSavedMcq(dynamic questionId) async {
+    try {
+      final response = await _postWithFallback('/saved-mcqs/toggle', {'question_id': questionId});
+      return response != null && (response.statusCode == 200 || response.statusCode == 201);
+    } catch (e) {
+      debugPrint('Error toggling saved mcq: $e');
+      return false;
+    }
+  }
+
+  /// GET /api/v1/notes
+  static Future<List<dynamic>> fetchNotes() async {
+    try {
+      final response = await _getWithFallback('/notes');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching notes: $e');
+      return [];
+    }
+  }
+
+  /// POST /api/v1/notes
+  static Future<bool> saveNote({required dynamic questionId, required String note}) async {
+    try {
+      final response = await _postWithFallback('/notes', {
+        'question_id': questionId,
+        'note': note,
+      });
+      return response != null && (response.statusCode == 200 || response.statusCode == 201);
+    } catch (e) {
+      debugPrint('Error saving note: $e');
+      return false;
+    }
+  }
+
+  /// DELETE /api/v1/notes/{id}
+  static Future<bool> deleteNote(dynamic noteId) async {
+    try {
+      final response = await _deleteWithFallback('/notes/$noteId');
+      return response != null && (response.statusCode == 200 || response.statusCode == 204);
+    } catch (e) {
+      debugPrint('Error deleting note: $e');
+      return false;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 10. Correct & Wrong MCQs API
+  // ─────────────────────────────────────────────────────
+  /// GET /api/v1/correct-mcqs
+  static Future<List<dynamic>> fetchCorrectMcqs() async {
+    try {
+      final response = await _getWithFallback('/correct-mcqs');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching correct mcqs: $e');
+      return [];
+    }
+  }
+
+  /// GET /api/v1/wrong-mcqs
+  static Future<List<dynamic>> fetchWrongMcqs() async {
+    try {
+      final response = await _getWithFallback('/wrong-mcqs');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching wrong mcqs: $e');
+      return [];
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 11. Support & Live Chat API
+  // ─────────────────────────────────────────────────────
+  /// GET /api/v1/support/messages
+  static Future<List<dynamic>> fetchSupportMessages() async {
+    try {
+      final response = await _getWithFallback('/support/messages');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching support messages: $e');
+      return [];
+    }
+  }
+
+  /// POST /api/v1/support/messages
+  static Future<bool> sendSupportMessage(String message) async {
+    try {
+      final response = await _postWithFallback('/support/messages', {'message': message});
+      return response != null && (response.statusCode == 200 || response.statusCode == 201);
+    } catch (e) {
+      debugPrint('Error sending support message: $e');
+      return false;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 12. Translation API
+  // ─────────────────────────────────────────────────────
+  /// GET /api/v1/translation
+  static Future<Map<String, dynamic>?> fetchTranslation({int? questionId, String? text}) async {
+    try {
+      final queryParams = <String, String>{};
+      if (questionId != null) queryParams['question_id'] = questionId.toString();
+      if (text != null && text.isNotEmpty) queryParams['text'] = text;
+      final response = await _getWithFallback('/translation', queryParameters: queryParams.isNotEmpty ? queryParams : null);
+      return _extractMap(response);
+    } catch (e) {
+      debugPrint('Error fetching translation: $e');
+      return null;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 13. Patente Social API
+  // ─────────────────────────────────────────────────────
+  /// GET /api/v1/patente-social/cards
+  static Future<List<dynamic>> fetchPatenteSocialCards() async {
+    try {
+      final response = await _getWithFallback('/patente-social/cards') ?? await _getWithFallback('/dashboard/cards');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching patente social cards: $e');
+      return [];
+    }
+  }
+
+  /// GET /api/v1/patente-social/banners
+  static Future<List<dynamic>> fetchPatenteSocialBanners() async {
+    try {
+      final response = await _getWithFallback('/patente-social/banners');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching patente social banners: $e');
+      return [];
+    }
+  }
+
+  /// GET /api/v1/patente-social/settings
+  static Future<Map<String, dynamic>?> fetchPatenteSocialSettings() async {
+    try {
+      final response = await _getWithFallback('/patente-social/settings');
+      return _extractMap(response);
+    } catch (e) {
+      debugPrint('Error fetching patente social settings: $e');
+      return null;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 14. Manuale API (Theory Study Manual)
+  // ─────────────────────────────────────────────────────
+  /// GET /api/v1/manuale/chapters
+  static Future<List<dynamic>> fetchManualeChapters() async {
+    try {
+      final response = await _getWithFallback('/manuale/chapters');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching manuale chapters: $e');
+      return [];
+    }
+  }
+
+  /// GET /api/v1/manuale/pages/{chapterId}
+  static Future<List<dynamic>> fetchManualePages(int chapterId) async {
+    try {
+      final response = await _getWithFallback('/manuale/pages/$chapterId');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching manuale pages: $e');
+      return [];
+    }
+  }
+
+  /// GET /api/v1/manuale/page/{id}
+  static Future<Map<String, dynamic>?> fetchManualePageDetails(int pageId) async {
+    try {
+      final response = await _getWithFallback('/manuale/page/$pageId');
+      return _extractMap(response);
+    } catch (e) {
+      debugPrint('Error fetching manuale page details: $e');
+      return null;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 15. Leaderboard API (Top Members & Rank)
+  // ─────────────────────────────────────────────────────
+  /// GET /api/v1/leaderboard
+  static Future<List<dynamic>> fetchLeaderboard() async {
+    try {
+      final response = await _getWithFallback('/leaderboard');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching leaderboard: $e');
+      return [];
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 16. Client Verification & App Licensing API
+  // ─────────────────────────────────────────────────────
+  /// GET /api/v1/client/status
+  static Future<Map<String, dynamic>?> fetchClientStatus() async {
+    try {
+      final response = await _getWithFallback('/client/status');
+      return _extractMap(response);
+    } catch (e) {
+      debugPrint('Error fetching client status: $e');
+      return null;
+    }
+  }
+
+  /// POST /api/v1/client/verify
+  static Future<Map<String, dynamic>?> verifyClientLicense(String activationKey) async {
+    try {
+      final response = await _postWithFallback('/client/verify', {'activation_key': activationKey});
+      return _extractMap(response);
+    } catch (e) {
+      debugPrint('Error verifying client license: $e');
+      return null;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // Backward Compatibility & Utility Methods
+  // ─────────────────────────────────────────────────────
+  static Future<List<dynamic>> fetchDashboardCards() => fetchPatenteSocialCards();
+
+  static Future<List<dynamic>> fetchQuestionsByIds(List<int> ids) async {
+    if (ids.isEmpty) return [];
+    try {
+      final response = await _getWithFallback('/questions/by-ids', queryParameters: {'ids': ids.join(',')});
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching questions by IDs: $e');
+      return [];
+    }
+  }
+
+  static Future<bool> logUserMcqResult(int questionId, bool isCorrect, String userAnswer) async {
+    try {
+      final response = await _postWithFallback('/user-mcq-results/log', {
+        'results': [
+          {
+            'question_id': questionId,
+            'user_answer': userAnswer,
+            'is_correct': isCorrect,
+          }
+        ]
+      });
+      return response != null && (response.statusCode == 200 || response.statusCode == 201);
+    } catch (e) {
+      debugPrint('Error logging user MCQ result: $e');
+      return false;
+    }
+  }
+
+  static Future<bool> unlockWebQrGate(String qrData) async {
+    // --- Parse token and origin from the scanned QR URL ---
+    String token = qrData;
+    String? qrOrigin; // base URL embedded in the QR code (always live server)
+
+    if (qrData.startsWith('http')) {
+      try {
+        final uri = Uri.parse(qrData);
+        qrOrigin = '${uri.scheme}://${uri.host}${uri.hasPort && uri.port != 80 && uri.port != 443 ? ':${uri.port}' : ''}';
+        token = uri.queryParameters['token']
+            ?? uri.queryParameters['session_id']
+            ?? qrData;
+      } catch (_) {}
+    }
+
+    final payload = {
+      'token'   : token,
+      'qr_code' : qrData,
+      'code'    : token,
+    };
+
+    // Build ordered list of origins to try:
+    // 1. The exact origin from the QR code (should be mbanglapatenteb.com)
+    // 2. Live domain fallbacks
+    // 3. Local candidates (for dev mode)
+    final orderedOrigins = <String>{};
+    if (qrOrigin != null) orderedOrigins.add(qrOrigin);
+    orderedOrigins.addAll(['http://mbanglapatenteb.com', 'https://mbanglapatenteb.com']);
+    for (final base in candidateBaseUrls) {
+      orderedOrigins.add(base.replaceAll(RegExp(r'/api/v1/?$'), ''));
+    }
+
+    for (final origin in orderedOrigins) {
+      for (final path in ['/qr-unlock', '/api/qr-unlock', '/api/v1/qr-unlock']) {
+        try {
+          final uri = Uri.parse('$origin$path');
+          debugPrint('🔓 Trying QR unlock: $uri');
+          final res = await http.post(
+            uri,
+            headers: defaultHeaders,
+            body: json.encode(payload),
+          ).timeout(const Duration(seconds: 3));
+          if (res.statusCode == 200 || res.statusCode == 201) {
+            debugPrint('✅ QR gate unlocked via: $uri');
+            return true;
+          }
+          debugPrint('⚠️ QR unlock got ${res.statusCode} from $uri');
+          break; // this origin responded — don't try other paths on it
+        } catch (e) {
+          debugPrint('❌ QR unlock failed for $origin$path: $e');
+        }
+      }
+    }
+
+    debugPrint('❌ QR gate unlock failed for all origins');
+    return false;
+  }
+
+
+
+  static Future<List<dynamic>> fetchExamQuestions() => generateSchedaEsame();
+  static Future<List<dynamic>> fetchClasses() async {
+    try {
+      final response = await _getWithFallback('/classes') ?? await _getWithFallback('/lezioni');
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching classes: $e');
+      return [];
+    }
+  }
+  static Future<List<dynamic>> fetchLiveClasses() => fetchEClasses();
+
+  /// Verification endpoint for live chat support (First Name, Last Name, Phone Number)
+  static Future<Map<String, dynamic>?> verifyClient({
+    required String firstName,
+    required String lastName,
+    required String phone,
+    String? sessionId,
+  }) async {
+    try {
+      final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
+      final uri = Uri.parse('$serverOrigin/api/client/verify');
+      final payload = {
+        'first_name': firstName,
+        'last_name': lastName,
+        'phone': phone,
+        if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
+      };
+
+      final response = await http.post(uri, headers: defaultHeaders, body: json.encode(payload)).timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final decoded = json.decode(response.body);
+        if (decoded is Map<String, dynamic>) return decoded;
+      }
+    } catch (e) {
+      debugPrint('Error verifying client: $e');
+    }
+    return null;
+  }
+
+  /// Fetch live chat messages for client by session_id or phone
+  static Future<List<dynamic>> fetchChatMessages([String? sessionId, String? phone]) async {
+    try {
+      final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
+      final queryParams = <String, String>{};
+      if (sessionId != null && sessionId.isNotEmpty) queryParams['session_id'] = sessionId;
+      if (phone != null && phone.isNotEmpty) queryParams['phone'] = phone;
+
+      final uri = Uri.parse('$serverOrigin/api/chat/messages').replace(queryParameters: queryParams);
+      final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return _extractList(response);
+      }
+    } catch (e) {
+      debugPrint('Error fetching chat messages: $e');
+    }
+    return fetchSupportMessages();
+  }
+
+  /// Send live chat message from client
+  static Future<bool> sendChatMessage(String message, [String? sessionId, String? phone]) async {
+    try {
+      final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
+      final uri = Uri.parse('$serverOrigin/api/chat/messages');
+      final payload = {
+        'message': message,
+        if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
+        if (phone != null && phone.isNotEmpty) 'phone': phone,
+      };
+
+      final response = await http.post(uri, headers: defaultHeaders, body: json.encode(payload)).timeout(const Duration(seconds: 4));
+      return response.statusCode == 200 || response.statusCode == 201;
+    } catch (e) {
+      debugPrint('Error sending chat message: $e');
+      return sendSupportMessage(message);
+    }
+  }
+
+  /// Activate client license when customer clicks Attiva Licenza button in chat
+  static Future<bool> activateClientLicense({String? sessionId, String? phone, int days = 365}) async {
+    try {
+      final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
+      final uri = Uri.parse('$serverOrigin/api/client/activate');
+      final payload = {
+        'days': days,
+        if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
+        if (phone != null && phone.isNotEmpty) 'phone': phone,
+      };
+
+      final response = await http.post(uri, headers: defaultHeaders, body: json.encode(payload)).timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final decoded = json.decode(response.body);
+        return decoded is Map && (decoded['success'] == true || decoded['status'] == 'success');
+      }
+    } catch (e) {
+      debugPrint('Error activating client license: $e');
+    }
+    return false;
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 15. Patente Social (Community Feed) API
+  // ─────────────────────────────────────────────────────
+  /// GET /api/social/posts
+  static Future<List<dynamic>> fetchSocialPosts({String userPhone = ''}) async {
+    try {
+      final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
+      final uri = Uri.parse('$serverOrigin/api/social/posts').replace(queryParameters: {
+        if (userPhone.isNotEmpty) 'user_phone': userPhone,
+      });
+      final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        final decoded = json.decode(response.body);
+        if (decoded is Map && decoded['status'] == 'success') {
+          return decoded['data'] ?? [];
+        }
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching social posts: $e');
+      return [];
+    }
+  }
+
+  /// POST /api/social/posts/store
+  static Future<Map<String, dynamic>?> createSocialPost({
+    required String authorName,
+    String authorPhone = '',
+    String authorAvatar = '',
+    required String content,
+    String? imageUrl,
+  }) async {
+    try {
+      final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
+      final uri = Uri.parse('$serverOrigin/api/social/posts/store');
+      final body = {
+        'author_name': authorName,
+        'author_phone': authorPhone,
+        'author_avatar': authorAvatar,
+        'content': content,
+        if (imageUrl != null && imageUrl.isNotEmpty) 'image_url': imageUrl,
+      };
+      final response = await http.post(uri, headers: defaultHeaders, body: json.encode(body)).timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return json.decode(response.body);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error creating social post: $e');
+      return null;
+    }
+  }
+
+  /// POST /api/social/posts/like/{id}
+  static Future<Map<String, dynamic>?> likeSocialPost(int postId, String userPhone) async {
+    try {
+      final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
+      final uri = Uri.parse('$serverOrigin/api/social/posts/like/$postId');
+      final response = await http.post(uri, headers: defaultHeaders, body: json.encode({'user_phone': userPhone})).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error liking social post: $e');
+      return null;
+    }
+  }
+
+  /// POST /api/social/posts/comments/store
+  static Future<Map<String, dynamic>?> addSocialComment({
+    required int postId,
+    required String authorName,
+    String authorPhone = '',
+    String authorAvatar = '',
+    required String comment,
+  }) async {
+    try {
+      final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
+      final uri = Uri.parse('$serverOrigin/api/social/posts/comments/store');
+      final body = {
+        'post_id': postId,
+        'author_name': authorName,
+        'author_phone': authorPhone,
+        'author_avatar': authorAvatar,
+        'comment': comment,
+      };
+      final response = await http.post(uri, headers: defaultHeaders, body: json.encode(body)).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return json.decode(response.body);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error adding comment: $e');
+      return null;
+    }
+  }
+
+  /// POST /api/social/posts/delete/{id}
+  static Future<bool> deleteSocialPost(int postId, String authorPhone) async {
+    try {
+      final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
+      final uri = Uri.parse('$serverOrigin/api/social/posts/delete/$postId');
+      final response = await http.post(uri, headers: defaultHeaders, body: json.encode({'author_phone': authorPhone})).timeout(const Duration(seconds: 4));
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error deleting social post: $e');
+      return false;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 📌 16. Translation API
+  // ─────────────────────────────────────────────────────
+  /// POST /api/translate
+  static Future<Map<String, dynamic>?> translateText({
+    required String text,
+    required String fromLang,
+    required String toLang,
+  }) async {
+    try {
+      final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
+      final uri = Uri.parse('$serverOrigin/api/translate');
+      final body = {
+        'text': text,
+        'from_lang': fromLang,
+        'to_lang': toLang,
+      };
+      final response = await http.post(uri, headers: defaultHeaders, body: json.encode(body)).timeout(const Duration(seconds: 6));
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error performing translation: $e');
+      return null;
+    }
+  }
+}
+
+
