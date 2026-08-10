@@ -493,7 +493,7 @@ class DictionaryIllustration extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────
-//  8. CARTELLI - Pole with STOP, GO & Warning signs
+//  8. CARTELLI - Italian Traffic Signs (Triangle, STOP & Obbligo)
 // ─────────────────────────────────────────────────────
 class CartelliIllustration extends StatelessWidget {
   const CartelliIllustration({super.key});
@@ -502,57 +502,154 @@ class CartelliIllustration extends StatelessWidget {
   Widget build(BuildContext context) {
     return CardIllustration(
       child: Stack(
+        clipBehavior: Clip.none,
         alignment: Alignment.center,
         children: [
-          // Pole
-          Container(width: 4, height: 44, color: const Color(0xFF90A0B7)),
-          // STOP Sign
+          // 1. Metallic sign pole
+          Container(
+            width: 4,
+            height: 48,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFFB0BEC5), Color(0xFF78909C)],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+              ),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+
+          // 2. Bold Top Red Warning Triangle Sign (Pericolo)
           Positioned(
-            top: 2,
+            top: 0,
+            child: CustomPaint(
+              size: const Size(36, 32),
+              painter: const _TrafficTrianglePainter(),
+            ),
+          ),
+
+          // 3. Crisp Red STOP Sign (Divieto)
+          Positioned(
+            bottom: 2,
+            left: 1,
             child: Container(
-              width: 24,
-              height: 20,
+              width: 25,
+              height: 25,
               decoration: BoxDecoration(
-                color: const Color(0xFFFF3D3D),
-                borderRadius: BorderRadius.circular(4),
+                color: const Color(0xFFE53935),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1.8),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.25),
+                    blurRadius: 3,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
               ),
               child: const Center(
                 child: Text(
                   'STOP',
-                  style: TextStyle(fontSize: 5.5, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: TextStyle(
+                    fontSize: 7,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    letterSpacing: -0.2,
+                  ),
                 ),
               ),
             ),
           ),
-          // GO Sign
+
+          // 4. Blue Mandatory Circle Sign (Obbligo)
           Positioned(
-            right: 4,
-            bottom: 12,
+            bottom: 4,
+            right: 1,
             child: Container(
-              width: 14,
-              height: 10,
+              width: 22,
+              height: 22,
               decoration: BoxDecoration(
-                color: const Color(0xFF4CAF50),
-                borderRadius: BorderRadius.circular(2),
+                color: const Color(0xFF1E88E5),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1.8),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.25),
+                    blurRadius: 3,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
               ),
               child: const Center(
-                child: Text(
-                  'GO',
-                  style: TextStyle(fontSize: 4.5, fontWeight: FontWeight.bold, color: Colors.white),
+                child: Icon(
+                  Icons.arrow_upward_rounded,
+                  size: 14,
+                  color: Colors.white,
                 ),
               ),
             ),
-          ),
-          // Warning triangle
-          Positioned(
-            left: 2,
-            bottom: 10,
-            child: const Icon(Icons.warning_amber_rounded, size: 14, color: Color(0xFFFFD95A)),
           ),
         ],
       ),
     );
   }
+}
+
+// Custom Painter for authentic Italian Traffic Warning Triangle (Red border, white center, black exclamation mark)
+class _TrafficTrianglePainter extends CustomPainter {
+  const _TrafficTrianglePainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // Outer Red Triangle
+    final outerPath = Path()
+      ..moveTo(w / 2, 0)
+      ..lineTo(w, h)
+      ..lineTo(0, h)
+      ..close();
+
+    final redPaint = Paint()
+      ..color = const Color(0xFFE53935)
+      ..style = PaintingStyle.fill;
+
+    canvas.drawPath(outerPath, redPaint);
+
+    // Inner White Triangle
+    final innerPath = Path()
+      ..moveTo(w / 2, 6)
+      ..lineTo(w - 5, h - 3)
+      ..lineTo(5, h - 3)
+      ..close();
+
+    final whitePaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+
+    canvas.drawPath(innerPath, whitePaint);
+
+    // Black Exclamation Mark inside triangle
+    final blackPaint = Paint()
+      ..color = const Color(0xFF212121)
+      ..style = PaintingStyle.fill;
+
+    // Exclamation stem
+    final stemPath = Path()
+      ..moveTo(w / 2 - 1.2, 11)
+      ..lineTo(w / 2 + 1.2, 11)
+      ..lineTo(w / 2 + 0.8, 20)
+      ..lineTo(w / 2 - 0.8, 20)
+      ..close();
+    canvas.drawPath(stemPath, blackPaint);
+
+    // Exclamation dot
+    canvas.drawCircle(Offset(w / 2, 23.5), 1.2, blackPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 // ─────────────────────────────────────────────────────
