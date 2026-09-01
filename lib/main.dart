@@ -12,11 +12,9 @@ import 'screens/exam_simulation_screen.dart';
 import 'screens/cartelli_screen.dart';
 import 'screens/sfida_screen.dart';
 import 'screens/tutor_chat_screen.dart';
-import 'screens/store_screen.dart';
 import 'screens/manuale_screen.dart';
 import 'screens/social_screen.dart';
 import 'screens/translation_screen.dart';
-import 'screens/app_preloader_dialog.dart';
 import 'screens/qr_scanner_dialog.dart';
 import 'screens/app_navigation_drawer.dart';
 import 'services/api_service.dart';
@@ -74,31 +72,7 @@ class MainNavigationWrapper extends StatefulWidget {
 }
 
 class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
-  // Global State for Tasbih
-  int _tasbihCount = 0;
-  int _tasbihTarget = 33;
-  String _currentDhikr = 'সুবহানাল্লাহ (Subhanallah)';
   bool _soundEnabled = true;
-
-  void _updateTasbihCount(int count) {
-    setState(() {
-      _tasbihCount = count;
-    });
-  }
-
-  void _updateTasbihTarget(int target) {
-    setState(() {
-      _tasbihTarget = target;
-      _tasbihCount = 0; // Reset count when changing target
-    });
-  }
-
-  void _updateCurrentDhikr(String dhikr) {
-    setState(() {
-      _currentDhikr = dhikr;
-      _tasbihCount = 0; // Reset count when changing dhikr
-    });
-  }
 
   void _toggleSound(bool enabled) {
     setState(() {
@@ -106,17 +80,8 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
     });
   }
 
-  void _resetTasbih() {
-    setState(() {
-      _tasbihCount = 0;
-    });
-  }
-
   void _clearAllData() {
     setState(() {
-      _tasbihCount = 0;
-      _tasbihTarget = 33;
-      _currentDhikr = 'সুবহানাল্লাহ (Subhanallah)';
       _soundEnabled = true;
       widget.onThemeChanged(false); // Default to Light Theme
     });
@@ -268,10 +233,6 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
 
   void _navigateToTutorChat() {
     _navigateToWithLoader(const TutorChatScreen(), title: 'সোশ্যাল মিডিয়া ও টিউটর লোড হচ্ছে...', isProtected: false);
-  }
-
-  void _navigateToStore() {
-    _navigateToWithLoader(const StoreScreen(), title: 'প্রিমিয়াম স্টোর লোড হচ্ছে...', isProtected: false);
   }
 
   // --- Simulated Utility Workflows ---
@@ -607,3 +568,4 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
     );
   }
 }
+
