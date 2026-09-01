@@ -8,14 +8,16 @@ import '../models/slider_model.dart';
 class ApiService {
   // Candidate Base URLs (Local Development Server Mode)
   static const List<String> candidateBaseUrls = [
+    'http://192.168.42.46:8000/api/v1',
     'http://192.168.0.101:8000/api/v1',
     'http://192.168.42.81:8000/api/v1',
+    'http://192.168.42.129:8000/api/v1',
     'http://10.0.2.2:8000/api/v1',
     'http://127.0.0.1:8000/api/v1',
     'http://localhost:8000/api/v1',
   ];
 
-  static String? _resolvedBaseUrl = 'http://192.168.0.101:8000/api/v1';
+  static String? _resolvedBaseUrl;
 
   /// Initialize server configuration by probing local URLs and fetching active settings
   static Future<void> initServerConfig() async {
@@ -888,38 +890,47 @@ class ApiService {
     required String phone,
     String? sessionId,
   }) async {
-    try {
-      final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
-      final uri = Uri.parse('$serverOrigin/api/client/verify');
-      final payload = {
-        'first_name': firstName,
-        'last_name': lastName,
-        'phone': phone,
-        if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
-      };
+    final payload = {
+      'first_name': firstName,
+      'last_name': lastName,
+      'phone': phone,
+      if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
+    };
 
-      final response = await http.post(uri, headers: defaultHeaders, body: json.encode(payload)).timeout(const Duration(seconds: 5));
-      if (response.statusCode == 200 || response.statusCode == 201) {
+    // 1. Try /client/verify with dynamic multi-host fallback
+    final response = await _postWithFallback('/client/verify', payload);
+    if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
+      try {
         final decoded = json.decode(response.body);
         if (decoded is Map<String, dynamic>) return decoded;
+      } catch (e) {
+        debugPrint('Error decoding /client/verify response: $e');
       }
-    } catch (e) {
-      debugPrint('Error verifying client: $e');
     }
+
+    // 2. Fallback to /support/register
+    final resp2 = await _postWithFallback('/support/register', payload);
+    if (resp2 != null && (resp2.statusCode == 200 || resp2.statusCode == 201)) {
+      try {
+        final decoded = json.decode(resp2.body);
+        if (decoded is Map<String, dynamic>) return decoded;
+      } catch (e) {
+        debugPrint('Error decoding /support/register response: $e');
+      }
+    }
+
     return null;
   }
 
   /// Fetch live chat messages for client by session_id or phone
   static Future<List<dynamic>> fetchChatMessages([String? sessionId, String? phone]) async {
     try {
-      final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
       final queryParams = <String, String>{};
       if (sessionId != null && sessionId.isNotEmpty) queryParams['session_id'] = sessionId;
       if (phone != null && phone.isNotEmpty) queryParams['phone'] = phone;
 
-      final uri = Uri.parse('$serverOrigin/api/chat/messages').replace(queryParameters: queryParams);
-      final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 4));
-      if (response.statusCode == 200 || response.statusCode == 201) {
+      final response = await _getWithFallback('/chat/messages', queryParameters: queryParams);
+      if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
         return _extractList(response);
       }
     } catch (e) {
@@ -938,8 +949,6 @@ class ApiService {
     String? attachmentPath,
   ]) async {
     try {
-      final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
-      final uri = Uri.parse('$serverOrigin/api/chat/messages');
       final payload = {
         'message': message,
         if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
@@ -949,27 +958,27 @@ class ApiService {
         if (attachmentPath != null && attachmentPath.isNotEmpty) 'attachment_path': attachmentPath,
       };
 
-      final response = await http.post(uri, headers: defaultHeaders, body: json.encode(payload)).timeout(const Duration(seconds: 4));
-      return response.statusCode == 200 || response.statusCode == 201;
+      final response = await _postWithFallback('/chat/messages', payload);
+      if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
+        return true;
+      }
     } catch (e) {
       debugPrint('Error sending chat message: $e');
-      return sendSupportMessage(message);
     }
+    return sendSupportMessage(message);
   }
 
   /// Activate client license when customer clicks Attiva Licenza button in chat
   static Future<bool> activateClientLicense({String? sessionId, String? phone, int days = 365}) async {
     try {
-      final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
-      final uri = Uri.parse('$serverOrigin/api/client/activate');
       final payload = {
         'days': days,
         if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
         if (phone != null && phone.isNotEmpty) 'phone': phone,
       };
 
-      final response = await http.post(uri, headers: defaultHeaders, body: json.encode(payload)).timeout(const Duration(seconds: 5));
-      if (response.statusCode == 200 || response.statusCode == 201) {
+      final response = await _postWithFallback('/client/activate', payload);
+      if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
         final decoded = json.decode(response.body);
         return decoded is Map && (decoded['success'] == true || decoded['status'] == 'success');
       }

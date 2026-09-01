@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -224,22 +224,9 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     }
     await prefs.setString('app_client_session_id', _sessionId);
 
-    if (!mounted) return;
-    setState(() {
-      _isSubmittingVerification = false;
-      _userPhone = phone;
-      _userName = '$fName $lName'.trim();
-      _isVerified = true;
-    });
-
-    _startChatPolling();
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('আপনার তথ্য জমা হয়েছে। লাইভ চ্যাটে স্বাগতম!'), backgroundColor: Colors.green),
-    );
-
+    Map<String, dynamic>? res;
     try {
-      final res = await ApiService.verifyClient(
+      res = await ApiService.verifyClient(
         firstName: fName,
         lastName: lName,
         phone: phone,
@@ -249,6 +236,7 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
       if (res != null) {
         final canonicalSessionId = res['client']?['session_id']?.toString() ??
                                    res['session_id']?.toString() ??
+                                   res['user']?['uuid']?.toString() ??
                                    _sessionId;
         _sessionId = canonicalSessionId;
         await prefs.setString('app_client_session_id', canonicalSessionId);
@@ -278,10 +266,28 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
         );
         await prefs.setBool(alreadySentKey, true);
       }
-      _fetchMessages();
     } catch (e) {
       debugPrint('Registration sync error: $e');
     }
+
+    if (!mounted) return;
+    setState(() {
+      _isSubmittingVerification = false;
+      _userPhone = phone;
+      _userName = '$fName $lName'.trim();
+      _isVerified = true;
+    });
+
+    _startChatPolling();
+    _fetchMessages();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('আপনার তথ্য সার্ভারে জমা হয়েছে। লাইভ চ্যাটে স্বাগতম!'),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   Future<void> _sendMessage() async {
