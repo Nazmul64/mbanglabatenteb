@@ -8,12 +8,20 @@ class GoogleTranslateDialog extends StatefulWidget {
   final String italianText;
   final String localTranslation;
   final String? imageUrl;
+  final bool isSaved;
+  final bool hasNote;
+  final VoidCallback? onToggleSave;
+  final VoidCallback? onOpenNote;
 
   const GoogleTranslateDialog({
     super.key,
     required this.italianText,
     required this.localTranslation,
     this.imageUrl,
+    this.isSaved = false,
+    this.hasNote = false,
+    this.onToggleSave,
+    this.onOpenNote,
   });
 
   @override
@@ -23,7 +31,7 @@ class GoogleTranslateDialog extends StatefulWidget {
 class _GoogleTranslateDialogState extends State<GoogleTranslateDialog> {
   String _translation = '';
   bool _isLoading = true;
-  bool _isBookmarked = false;
+  late bool _isBookmarked;
   final FlutterTts _flutterTts = FlutterTts();
 
   bool get _hasValidImage {
@@ -37,6 +45,7 @@ class _GoogleTranslateDialogState extends State<GoogleTranslateDialog> {
   @override
   void initState() {
     super.initState();
+    _isBookmarked = widget.isSaved;
     _initTts();
     if (widget.localTranslation.trim().isNotEmpty) {
       _translation = widget.localTranslation.trim();
@@ -246,25 +255,45 @@ class _GoogleTranslateDialogState extends State<GoogleTranslateDialog> {
                 ),
                 const Spacer(),
 
-                // Bookmark icon
+                // Bookmark icon (Saves Question)
                 IconButton(
                   icon: Icon(
                     _isBookmarked ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
                     color: _isBookmarked ? const Color(0xFF22C55E) : (isDark ? Colors.white70 : Colors.black87),
                     size: 22,
                   ),
+                  tooltip: 'Save Question',
                   onPressed: () {
                     setState(() {
                       _isBookmarked = !_isBookmarked;
                     });
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(_isBookmarked ? 'শব্দটি বুকমার্ক করা হয়েছে' : 'বুকমার্ক সরানো হয়েছে'),
-                        duration: const Duration(seconds: 1),
-                      ),
-                    );
+                    if (widget.onToggleSave != null) {
+                      widget.onToggleSave!();
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(_isBookmarked ? 'প্রশ্নটি সেভ করা হয়েছে' : 'সেভ থেকে সরানো হয়েছে'),
+                          duration: const Duration(seconds: 1),
+                        ),
+                      );
+                    }
                   },
                 ),
+
+                // Note icon (Opens Note Dialog)
+                if (widget.onOpenNote != null)
+                  IconButton(
+                    icon: Icon(
+                      Icons.note_alt_outlined,
+                      color: widget.hasNote ? const Color(0xFF22C55E) : (isDark ? Colors.white70 : Colors.black87),
+                      size: 22,
+                    ),
+                    tooltip: 'Question Note',
+                    onPressed: () {
+                      Navigator.pop(context);
+                      widget.onOpenNote!();
+                    },
+                  ),
 
                 // Audio Speaker icon
                 IconButton(

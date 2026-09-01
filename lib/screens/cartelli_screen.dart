@@ -901,6 +901,10 @@ class _CartelliScreenState extends State<CartelliScreen> {
                                     italianText: cleanWord.isNotEmpty ? cleanWord : rawWord,
                                     localTranslation: translation,
                                     imageUrl: vocabImage,
+                                    isSaved: quiz.isSaved,
+                                    hasNote: quiz.studyNotes.trim().isNotEmpty,
+                                    onToggleSave: () => _toggleQuizSave(quiz),
+                                    onOpenNote: () => _openNoteDialog(quiz),
                                   ),
                                 );
                               },
@@ -1087,39 +1091,13 @@ class _CartelliScreenState extends State<CartelliScreen> {
                     icon: quiz.isSaved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
                     label: 'সেভ',
                     color: quiz.isSaved ? Colors.green : Colors.grey.shade700,
-                    onTap: () async {
-                      final mcq = McqQuestion(
-                        id: quiz.rawId,
-                        chapter: 1,
-                        chapterName: _selectedCapitolo,
-                        italian: quiz.italian,
-                        bangla: quiz.bangla,
-                        isVero: quiz.isVero,
-                        image: quiz.image,
-                        vocabulary: quiz.vocabulary,
-                      );
-                      if (quiz.isSaved) {
-                        await BookmarkManager.removeQuestion(quiz.italian, quiz.rawId, 'cartelli');
-                      } else {
-                        await BookmarkManager.saveQuestion(mcq, type: 'cartelli');
-                      }
-                      setState(() => quiz.isSaved = !quiz.isSaved);
-                    },
+                    onTap: () => _toggleQuizSave(quiz),
                   ),
                   _buildActionButton(
                     icon: Icons.edit_note_rounded,
                     label: 'নোট',
                     color: Colors.grey.shade700,
-                    onTap: () {
-                      showDialog(
-                        context: context,
-                        builder: (context) => QuestionNoteDialog(
-                          questionId: quiz.id,
-                          initialNote: quiz.studyNotes,
-                          onSave: (newNote) => setState(() => quiz.studyNotes = newNote),
-                        ),
-                      );
-                    },
+                    onTap: () => _openNoteDialog(quiz),
                   ),
                 ],
               ),
@@ -1183,6 +1161,38 @@ class _CartelliScreenState extends State<CartelliScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _toggleQuizSave(PatenteQuizItem quiz) async {
+    final mcq = McqQuestion(
+      id: quiz.rawId,
+      chapter: 1,
+      chapterName: _selectedCapitolo,
+      italian: quiz.italian,
+      bangla: quiz.bangla,
+      isVero: quiz.isVero,
+      image: quiz.image,
+      vocabulary: quiz.vocabulary,
+    );
+    if (quiz.isSaved) {
+      await BookmarkManager.removeQuestion(quiz.italian, quiz.rawId, 'cartelli');
+    } else {
+      await BookmarkManager.saveQuestion(mcq, type: 'cartelli');
+    }
+    if (mounted) {
+      setState(() => quiz.isSaved = !quiz.isSaved);
+    }
+  }
+
+  void _openNoteDialog(PatenteQuizItem quiz) {
+    showDialog(
+      context: context,
+      builder: (context) => QuestionNoteDialog(
+        questionId: quiz.id,
+        initialNote: quiz.studyNotes,
+        onSave: (newNote) => setState(() => quiz.studyNotes = newNote),
       ),
     );
   }
