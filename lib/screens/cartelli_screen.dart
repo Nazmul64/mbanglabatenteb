@@ -170,31 +170,24 @@ class _CartelliScreenState extends State<CartelliScreen> {
     String? pageImgPos;
 
     if (pageId != null) {
-      final details = await ApiService.fetchPageDetails(pageId);
-      if (details != null) {
-        pageImg = (details['image'] ?? details['image_path'] ?? details['cover_image'] ?? details['image_url'] ?? details['img'] ?? details['photo'] ?? details['page_image'])?.toString();
-        pageImgPos = (details['image_position'] ?? details['position'] ?? details['img_position'] ?? details['image_location'])?.toString();
-        if (details['questions'] is List && (details['questions'] as List).isNotEmpty) {
-          rawMcqs = details['questions'] as List;
-        }
+      final pageData = _apiPages.firstWhere(
+        (p) => (p['id'] is int ? p['id'] : int.tryParse('${p['id']}')) == pageId,
+        orElse: () => null,
+      );
+      if (pageData != null) {
+        pageImg = (pageData['image'] ?? pageData['image_path'] ?? pageData['cover_image'] ?? pageData['image_url'] ?? pageData['img'])?.toString();
+        pageImgPos = (pageData['image_position'] ?? pageData['position'] ?? pageData['img_position'])?.toString();
       }
-      if (rawMcqs.isEmpty) {
-        rawMcqs = await ApiService.fetchCartelliPageMcqs(pageId);
-      }
+      rawMcqs = await ApiService.fetchCartelliPageMcqs(pageId);
     } else {
       for (var page in _apiPages) {
         final pId = page['id'] is int ? page['id'] as int : int.tryParse('${page['id']}') ?? 1;
-        final details = await ApiService.fetchPageDetails(pId);
-        if (details != null && details['questions'] is List && (details['questions'] as List).isNotEmpty) {
-          rawMcqs.addAll(details['questions'] as List);
-          if (pageImg == null) {
-            pageImg = (details['image'] ?? details['image_path'] ?? details['cover_image'])?.toString();
-            pageImgPos = (details['image_position'] ?? details['position'] ?? details['img_position'] ?? details['image_location'])?.toString();
-          }
-        } else {
-          final list = await ApiService.fetchCartelliPageMcqs(pId);
-          rawMcqs.addAll(list);
+        if (pageImg == null) {
+          pageImg = (page['image'] ?? page['image_path'] ?? page['cover_image'])?.toString();
+          pageImgPos = (page['image_position'] ?? page['position'] ?? page['img_position'])?.toString();
         }
+        final list = await ApiService.fetchCartelliPageMcqs(pId);
+        rawMcqs.addAll(list);
       }
     }
 
