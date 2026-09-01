@@ -5,6 +5,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'triangle_pattern_painter.dart';
 import 'google_translate_dialog.dart';
 import 'full_translate_dialog.dart';
+import 'image_zoom_dialog.dart';
 import 'question_note_dialog.dart';
 import 'quiz_practice_screen.dart';
 import 'exam_simulation_screen.dart';
@@ -42,6 +43,7 @@ class _CartelliScreenState extends State<CartelliScreen> {
 
   bool _isSelectActive = false;
   String? _pageImage;
+  String? _pageImagePosition;
 
   // Audio and TTS
   final FlutterTts _flutterTts = FlutterTts();
@@ -164,20 +166,40 @@ class _CartelliScreenState extends State<CartelliScreen> {
     final pageId = _pageIdMap[_selectedPagina];
 
     List<dynamic> rawMcqs = [];
+    String? pageImg;
+    String? pageImgPos;
+
     if (pageId != null) {
-      rawMcqs = await ApiService.fetchCartelliPageMcqs(pageId);
+      final details = await ApiService.fetchPageDetails(pageId);
+      if (details != null) {
+        pageImg = (details['image'] ?? details['image_path'] ?? details['cover_image'] ?? details['image_url'] ?? details['img'] ?? details['photo'] ?? details['page_image'])?.toString();
+        pageImgPos = (details['image_position'] ?? details['position'] ?? details['img_position'] ?? details['image_location'])?.toString();
+        if (details['questions'] is List && (details['questions'] as List).isNotEmpty) {
+          rawMcqs = details['questions'] as List;
+        }
+      }
+      if (rawMcqs.isEmpty) {
+        rawMcqs = await ApiService.fetchCartelliPageMcqs(pageId);
+      }
     } else {
-      final chapterId = _chapterIdMap[_selectedCapitolo] ?? 1;
       for (var page in _apiPages) {
         final pId = page['id'] is int ? page['id'] as int : int.tryParse('${page['id']}') ?? 1;
-        final list = await ApiService.fetchCartelliPageMcqs(pId);
-        rawMcqs.addAll(list);
+        final details = await ApiService.fetchPageDetails(pId);
+        if (details != null && details['questions'] is List && (details['questions'] as List).isNotEmpty) {
+          rawMcqs.addAll(details['questions'] as List);
+          if (pageImg == null) {
+            pageImg = (details['image'] ?? details['image_path'] ?? details['cover_image'])?.toString();
+            pageImgPos = (details['image_position'] ?? details['position'] ?? details['img_position'] ?? details['image_location'])?.toString();
+          }
+        } else {
+          final list = await ApiService.fetchCartelliPageMcqs(pId);
+          rawMcqs.addAll(list);
+        }
       }
     }
 
     if (mounted) {
       List<PatenteQuizItem> loadedQuizzes = [];
-      String? firstPageImg;
 
       for (int i = 0; i < rawMcqs.length; i++) {
         final q = rawMcqs[i];
@@ -193,10 +215,25 @@ class _CartelliScreenState extends State<CartelliScreen> {
           isVero = rawIsVero == 1;
         }
 
-        final img = q['image']?.toString();
-        if (firstPageImg == null && img != null && img.trim().isNotEmpty) {
-          firstPageImg = img;
+        final vocabs = q['vocabulary'] ?? q['vocabulary_underlines'];
+        String? img = (q['image'] ?? q['image_path'] ?? q['img'] ?? q['photo'])?.toString();
+        if (img == null || img.trim().isEmpty || img.trim().toLowerCase() == 'null' || img.trim().toLowerCase() == 'undefined') {
+          if (vocabs is List && vocabs.isNotEmpty) {
+            for (var v in vocabs) {
+              if (v is Map) {
+                final vImg = (v['image'] ?? v['image_path'] ?? v['img'] ?? v['photo'] ?? v['image_url'])?.toString().trim();
+                if (vImg != null && vImg.isNotEmpty && vImg.toLowerCase() != 'null' && vImg.toLowerCase() != 'undefined') {
+                  img = vImg;
+                  break;
+                }
+              }
+            }
+          }
         }
+        if (img == null || img.trim().isEmpty || img.trim().toLowerCase() == 'null') {
+          img = pageImg;
+        }
+        final rawImgPos = (q['image_position'] ?? q['position'] ?? q['img_position'] ?? q['image_location'] ?? pageImgPos ?? 'left').toString();
 
         final rawIdVal = q['id'] is int ? q['id'] as int : int.tryParse('${q['id']}') ?? (i + 1);
         final audioUrl = q['audio'] ?? q['voice'] ?? q['mp3'] ?? q['audio_url'];
@@ -209,6 +246,7 @@ class _CartelliScreenState extends State<CartelliScreen> {
           isVero: isVero,
           audioNote: '',
           image: img,
+          imagePosition: rawImgPos,
           audioUrl: audioUrl?.toString(),
           vocabulary: q['vocabulary'] ?? q['vocabulary_underlines'],
         );
@@ -219,7 +257,8 @@ class _CartelliScreenState extends State<CartelliScreen> {
 
       setState(() {
         _quizzes = loadedQuizzes;
-        _pageImage = firstPageImg;
+        _pageImage = pageImg;
+        _pageImagePosition = pageImgPos;
         _isLoadingChapters = false;
         _isLoadingPages = false;
         _isLoadingQuizzes = false;
@@ -372,8 +411,10 @@ class _CartelliScreenState extends State<CartelliScreen> {
         italian: q.italian,
         bangla: q.bangla,
         isVero: q.isVero,
-        image: q.image,
+        image: (q.image != null && q.image!.trim().isNotEmpty && q.image!.toLowerCase() != 'null') ? q.image : _pageImage,
+        imagePosition: q.imagePosition ?? _pageImagePosition,
         audio: q.audioUrl,
+        vocabulary: q.vocabulary,
       );
     }).toList();
 
@@ -458,13 +499,34 @@ class _CartelliScreenState extends State<CartelliScreen> {
 
   Widget _buildTopHeaderSection(bool isDark) {
     String? bannerImg;
-    for (var q in _quizzes) {
-      if (q.image != null && q.image!.trim().isNotEmpty) {
-        bannerImg = q.image;
-        break;
+    final pos = (_pageImagePosition ?? '').toLowerCase().trim();
+    if (pos.contains('both') ||
+        pos.contains('top') ||
+        pos.contains('up') ||
+        pos.contains('banner') ||
+        pos.contains('header') ||
+        pos.contains('sopra') ||
+        pos.contains('উভয়')) {
+      bannerImg = _pageImage;
+    }
+
+    if (bannerImg == null || bannerImg.trim().isEmpty) {
+      for (var q in _quizzes) {
+        if (q.image != null && q.image!.trim().isNotEmpty) {
+          final qPos = (q.imagePosition ?? '').toLowerCase().trim();
+          if (qPos.contains('both') ||
+              qPos.contains('top') ||
+              qPos.contains('up') ||
+              qPos.contains('banner') ||
+              qPos.contains('header') ||
+              qPos.contains('sopra') ||
+              qPos.contains('উভয়')) {
+            bannerImg = q.image;
+            break;
+          }
+        }
       }
     }
-    bannerImg ??= _pageImage;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
@@ -558,26 +620,9 @@ class _CartelliScreenState extends State<CartelliScreen> {
           ),
           const SizedBox(height: 12),
 
-          // Buttons Row: Select (hidden when active), Select All, Unselect All
+          // Buttons Row: Select All (Left), Select (Middle, hidden when active), Unselect All (Right)
           Row(
             children: [
-              if (!_isSelectActive) ...[
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: _onSelectButtonPressed,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: isDark ? Colors.white10 : Colors.grey.shade100,
-                      foregroundColor: isDark ? Colors.white70 : Colors.grey.shade800,
-                      elevation: 0,
-                      side: BorderSide(color: Colors.grey.shade300, width: 1.0),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                    ),
-                    child: const Text('Select', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                  ),
-                ),
-                const SizedBox(width: 8),
-              ],
               Expanded(
                 child: ElevatedButton(
                   onPressed: _selectAll,
@@ -592,6 +637,23 @@ class _CartelliScreenState extends State<CartelliScreen> {
                   child: const Text('Select All', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
               ),
+              if (!_isSelectActive) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _onSelectButtonPressed,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isDark ? Colors.white10 : Colors.grey.shade100,
+                      foregroundColor: isDark ? Colors.white70 : Colors.grey.shade800,
+                      elevation: 0,
+                      side: BorderSide(color: Colors.grey.shade300, width: 1.0),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    child: const Text('Select', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
               const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton(
@@ -610,7 +672,7 @@ class _CartelliScreenState extends State<CartelliScreen> {
             ],
           ),
 
-          // Banner Image Card if image exists
+          // Banner Image Card if image exists and position is top/both/banner/sopra
           if (bannerImg != null && bannerImg.trim().isNotEmpty) ...[
             const SizedBox(height: 14),
             Container(
@@ -643,8 +705,35 @@ class _CartelliScreenState extends State<CartelliScreen> {
     );
   }
 
+  String? _resolveEffectiveQuizImage(PatenteQuizItem quiz) {
+    if (quiz.image != null &&
+        quiz.image!.trim().isNotEmpty &&
+        quiz.image!.trim().toLowerCase() != 'null' &&
+        quiz.image!.trim().toLowerCase() != 'undefined') {
+      return quiz.image;
+    }
+    if (quiz.vocabulary != null) {
+      for (var v in quiz.vocabulary!) {
+        if (v is Map) {
+          final img = (v['image'] ?? v['image_path'] ?? v['img'] ?? v['photo'] ?? v['image_url'])?.toString().trim();
+          if (img != null && img.isNotEmpty && img.toLowerCase() != 'null' && img.toLowerCase() != 'undefined') {
+            return img;
+          }
+        }
+      }
+    }
+    if (_pageImage != null &&
+        _pageImage!.trim().isNotEmpty &&
+        _pageImage!.trim().toLowerCase() != 'null' &&
+        _pageImage!.trim().toLowerCase() != 'undefined') {
+      return _pageImage;
+    }
+    return null;
+  }
+
   Widget _buildQuizCard(PatenteQuizItem quiz, bool isDark) {
-    final imgUrl = ApiService.formatImageUrl(quiz.image);
+    final effectiveImg = _resolveEffectiveQuizImage(quiz);
+    final imgUrl = ApiService.formatImageUrl(effectiveImg);
 
     return Container(
       decoration: BoxDecoration(
@@ -748,16 +837,22 @@ class _CartelliScreenState extends State<CartelliScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (imgUrl.isNotEmpty) ...[
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
+                    GestureDetector(
+                      onTap: () => ImageZoomDialog.show(context, imgUrl),
                       child: Container(
-                        width: 75,
-                        height: 75,
-                        color: isDark ? Colors.white.withOpacity(0.04) : Colors.grey.shade100,
-                        child: Image.network(
-                          imgUrl,
-                          fit: BoxFit.contain,
-                          errorBuilder: (context, error, stackTrace) => const Icon(Icons.image_rounded, size: 30, color: Colors.grey),
+                        constraints: const BoxConstraints(
+                          maxWidth: 95,
+                          maxHeight: 90,
+                          minWidth: 70,
+                        ),
+                        alignment: Alignment.center,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            imgUrl,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) => const Icon(Icons.image_rounded, size: 30, color: Colors.grey),
+                          ),
                         ),
                       ),
                     ),
@@ -775,21 +870,24 @@ class _CartelliScreenState extends State<CartelliScreen> {
                               isDark: isDark,
                               fontSize: 14.5,
                               height: 1.45,
+                              vocabulary: quiz.vocabulary,
                               onTapWord: (rawWord, cleanWord) {
                                 String? vocabImage;
-                                String translation = quiz.bangla;
+                                String translation = '';
 
                                 if (quiz.vocabulary != null) {
                                   for (var item in quiz.vocabulary!) {
                                     if (item is Map) {
                                       final word = (item['italian'] ?? item['word'] ?? item['italian_word'] ?? '').toString().trim().toLowerCase();
-                                      if (word == cleanWord.toLowerCase() || word == rawWord.toLowerCase()) {
+                                      final rawLower = rawWord.toLowerCase().trim();
+                                      final cleanLower = cleanWord.toLowerCase().trim();
+                                      if (word.isNotEmpty && (word == cleanLower || word == rawLower || rawLower == word || cleanLower == word)) {
                                         final bn = (item['bangla'] ?? item['meaning'] ?? item['bangla_meaning'] ?? item['translation'] ?? '').toString().trim();
                                         if (bn.isNotEmpty) {
                                           translation = bn;
                                         }
-                                        final img = (item['image'] ?? item['image_path'] ?? item['img'] ?? '').toString().trim();
-                                        if (img.isNotEmpty) {
+                                        final img = (item['image'] ?? item['image_path'] ?? item['img'] ?? item['photo'] ?? item['image_url'] ?? '').toString().trim();
+                                        if (img.isNotEmpty && img.toLowerCase() != 'null' && img.toLowerCase() != 'undefined' && img.toLowerCase() != 'none') {
                                           vocabImage = img;
                                         }
                                         break;
@@ -798,8 +896,10 @@ class _CartelliScreenState extends State<CartelliScreen> {
                                   }
                                 }
 
-                                if (translation == quiz.bangla && QuestionDatabase.globalGlossary.containsKey(cleanWord.toLowerCase())) {
+                                if (translation.isEmpty && QuestionDatabase.globalGlossary.containsKey(cleanWord.toLowerCase())) {
                                   translation = QuestionDatabase.globalGlossary[cleanWord.toLowerCase()]!;
+                                } else if (translation.isEmpty && QuestionDatabase.globalGlossary.containsKey(rawWord.toLowerCase())) {
+                                  translation = QuestionDatabase.globalGlossary[rawWord.toLowerCase()]!;
                                 }
 
                                 showDialog(
@@ -982,7 +1082,10 @@ class _CartelliScreenState extends State<CartelliScreen> {
                         builder: (context) => FullTranslateDialog(
                           italianText: quiz.italian,
                           banglaText: quiz.bangla,
-                          imageUrl: quiz.image,
+                          imageUrl: (quiz.image != null && quiz.image!.trim().isNotEmpty && quiz.image!.toLowerCase() != 'null')
+                              ? quiz.image
+                              : _pageImage,
+                          vocabulary: quiz.vocabulary,
                         ),
                       );
                     },
@@ -993,17 +1096,19 @@ class _CartelliScreenState extends State<CartelliScreen> {
                     color: quiz.isSaved ? Colors.green : Colors.grey.shade700,
                     onTap: () async {
                       final mcq = McqQuestion(
+                        id: quiz.rawId,
                         chapter: 1,
                         chapterName: _selectedCapitolo,
                         italian: quiz.italian,
                         bangla: quiz.bangla,
                         isVero: quiz.isVero,
                         image: quiz.image,
+                        vocabulary: quiz.vocabulary,
                       );
                       if (quiz.isSaved) {
-                        await BookmarkManager.removeQuestion(quiz.italian);
+                        await BookmarkManager.removeQuestion(quiz.italian, quiz.rawId, 'cartelli');
                       } else {
-                        await BookmarkManager.saveQuestion(mcq);
+                        await BookmarkManager.saveQuestion(mcq, type: 'cartelli');
                       }
                       setState(() => quiz.isSaved = !quiz.isSaved);
                     },
@@ -1025,30 +1130,32 @@ class _CartelliScreenState extends State<CartelliScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              Divider(height: 1, color: isDark ? Colors.white10 : Colors.grey.shade200),
-              const SizedBox(height: 10),
+              if (quiz.giustoCount > 0 || quiz.sbagliatoCount > 0) ...[
+                const SizedBox(height: 12),
+                Divider(height: 1, color: isDark ? Colors.white10 : Colors.grey.shade200),
+                const SizedBox(height: 10),
 
-              // Answer stats at bottom of card
-              Center(
-                child: Column(
-                  children: [
-                    Text(
-                      '(TU) Hai risposto:',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white70 : Colors.black87),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text('Giusto ${quiz.giustoCount} volte', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF22C55E))),
-                        const SizedBox(width: 14),
-                        Text('Sbagliato ${quiz.sbagliatoCount} volte', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFEF4444))),
-                      ],
-                    ),
-                  ],
+                // Answer stats at bottom of card (Only shown when attempted)
+                Center(
+                  child: Column(
+                    children: [
+                      Text(
+                        '(TU) Hai risposto:',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white70 : Colors.black87),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text('Giusto ${quiz.giustoCount} volte', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF22C55E))),
+                          const SizedBox(width: 14),
+                          Text('Sbagliato ${quiz.sbagliatoCount} volte', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFEF4444))),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),

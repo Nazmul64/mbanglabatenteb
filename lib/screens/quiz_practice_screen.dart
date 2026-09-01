@@ -4,13 +4,14 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'triangle_pattern_painter.dart';
 import '../models/mcq_question.dart';
+import '../models/question_database.dart';
 import '../models/bookmark_manager.dart';
 import '../services/api_service.dart';
 import '../services/html_text_helper.dart';
 import 'google_translate_dialog.dart';
 import 'full_translate_dialog.dart';
 import 'question_note_dialog.dart';
-import 'instant_correction_dialog.dart';
+import 'image_zoom_dialog.dart';
 import 'exam_simulation_screen.dart';
 
 class PatenteQuizItem {
@@ -21,6 +22,7 @@ class PatenteQuizItem {
   final bool isVero;
   final String audioNote;
   final String? image;
+  final String? imagePosition;
   final String? audioUrl;
   final List<dynamic>? vocabulary;
   bool? userSelectedVero;
@@ -46,6 +48,7 @@ class PatenteQuizItem {
     required this.isVero,
     required this.audioNote,
     this.image,
+    this.imagePosition,
     this.audioUrl,
     this.vocabulary,
     this.userSelectedVero,
@@ -70,6 +73,8 @@ class QuizPracticeScreen extends StatefulWidget {
   final int? initialPage;
   final List<McqQuestion>? questions;
   final String? quizTitle;
+  final String? initialPageImage;
+  final String? initialPageImagePosition;
 
   const QuizPracticeScreen({
     super.key,
@@ -77,6 +82,8 @@ class QuizPracticeScreen extends StatefulWidget {
     this.initialPage,
     this.questions,
     this.quizTitle,
+    this.initialPageImage,
+    this.initialPageImagePosition,
   });
 
   @override
@@ -123,6 +130,7 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
   late String _selectedCapitolo;
   late String _selectedPagina;
   String? _pageImage;
+  String? _pageImagePosition;
 
   List<String> _capitoli = [];
   List<String> _pagine = [];
@@ -186,6 +194,17 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
     _apiChapters = await ApiService.fetchChapters();
     if (mounted) {
       if (_apiChapters.isNotEmpty) {
+        int? targetChapId = widget.initialChapterId;
+        if (targetChapId == null && widget.questions != null && widget.questions!.isNotEmpty) {
+          targetChapId = widget.questions!.first.chapter;
+        }
+        if (targetChapId == null && widget.quizTitle != null) {
+          final match = RegExp(r'Capitolo (\d+)', caseSensitive: false).firstMatch(widget.quizTitle!);
+          if (match != null) {
+            targetChapId = int.tryParse(match.group(1)!);
+          }
+        }
+
         setState(() {
           _capitoli = _apiChapters.map((ch) {
             final id = ch['id'] is int ? ch['id'] as int : int.tryParse('${ch['id']}') ?? 1;
@@ -194,9 +213,13 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
             return 'Capitolo $chapNum) $name';
           }).toList();
 
-          if (widget.initialChapterId != null) {
+          if (targetChapId != null) {
             final found = _apiChapters.firstWhere(
-              (c) => c['id'] == widget.initialChapterId || c['chapter_number'] == widget.initialChapterId,
+              (c) {
+                final cId = c['id'] is int ? c['id'] as int : int.tryParse('${c['id']}');
+                final cNum = c['chapter_number'] is int ? c['chapter_number'] as int : int.tryParse('${c['chapter_number']}');
+                return cId == targetChapId || cNum == targetChapId;
+              },
               orElse: () => _apiChapters.first,
             );
             final id = found['id'] is int ? found['id'] as int : int.tryParse('${found['id']}') ?? 1;
@@ -214,10 +237,19 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
         });
       }
     }
-    await _loadQuizzes();
+    await _loadQuizzes(isInitial: true);
   }
 
   int _getSelectedChapterId() {
+    for (var ch in _apiChapters) {
+      final id = ch['id'] is int ? ch['id'] as int : int.tryParse('${ch['id']}') ?? 1;
+      final chapNum = ch['chapter_number'] ?? id;
+      final name = (ch['name'] ?? ch['title'] ?? 'Capitolo $id').toString().toUpperCase();
+      final key = 'Capitolo $chapNum) $name';
+      if (key == _selectedCapitolo) {
+        return id;
+      }
+    }
     final RegExp regExp = RegExp(r'Capitolo (\d+)\)');
     final match = regExp.firstMatch(_selectedCapitolo);
     if (match != null) {
@@ -226,7 +258,73 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
     return widget.initialChapterId ?? 1;
   }
 
-  Future<void> _loadQuizzes() async {
+  Future<void> _loadPagesForChapter() async {
+    final chapterId = _getSelectedChapterId();
+    final apiPages = await ApiService.fetchChapterPages(chapterId);
+
+    if (apiPages.isNotEmpty && mounted) {
+      setState(() {
+        _pagine = apiPages.map((p) {
+          final pageNum = p['sort_order'] ?? p['id'];
+          final title = p['title'] ?? 'Pagina $pageNum';
+          return 'Pagina $pageNum) $title';
+        }).toList();
+        _selectedPagina = _pagine.first;
+      });
+      await _loadQuizzesForCurrentPage(apiPages);
+    }
+  }
+
+  Future<void> _loadQuizzesForCurrentPage(List<dynamic> apiPages) async {
+    final selectedPageIndex = _pagine.indexOf(_selectedPagina);
+    final activePageMap = (selectedPageIndex != -1 && selectedPageIndex < apiPages.length)
+        ? apiPages[selectedPageIndex]
+        : apiPages.first;
+    final pId = activePageMap['id'] is int ? activePageMap['id'] as int : int.tryParse('${activePageMap['id']}') ?? 1;
+
+    final details = await ApiService.fetchPageDetails(pId);
+    if (details != null && mounted) {
+      final pos = (details['image_position'] ?? details['position'] ?? details['img_position'] ?? details['image_location'] ?? 'left')?.toString();
+      setState(() {
+        _pageImage = details['image']?.toString();
+        _pageImagePosition = pos;
+      });
+      List<dynamic> rawQuestions = [];
+      if (details['questions'] is List && (details['questions'] as List).isNotEmpty) {
+        rawQuestions = details['questions'] as List;
+      } else {
+        rawQuestions = await ApiService.fetchCartelliPageMcqs(pId);
+      }
+
+      if (rawQuestions.isNotEmpty && mounted) {
+        final apiQuestions = rawQuestions.map((q) => q is McqQuestion ? q : McqQuestion.fromJson(q)).toList();
+        setState(() {
+          _quizzes = List.generate(apiQuestions.length, (index) {
+            final q = apiQuestions[index];
+            return PatenteQuizItem(
+              rawId: q.id,
+              id: '${index + 1}',
+              italian: q.italian,
+              bangla: q.bangla,
+              isVero: q.isVero,
+              image: q.image,
+              imagePosition: q.imagePosition ?? pos,
+              audioUrl: q.audio,
+              vocabulary: q.vocabulary,
+              audioNote: q.isVero
+                  ? 'এটি সত্য (Vero)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি সঠিক।'
+                  : 'এটি মিথ্যা (Falso)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি ভুল।',
+              giustoCount: 0,
+              sbagliatoCount: 0,
+            );
+          });
+        });
+        _syncSavedStatus();
+      }
+    }
+  }
+
+  Future<void> _loadQuizzes({bool isInitial = false}) async {
     final chapterId = _getSelectedChapterId();
     final apiPages = await ApiService.fetchChapterPages(chapterId);
 
@@ -238,47 +336,64 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
           return 'Pagina $pageNum) $title';
         }).toList();
 
-        if (!_pagine.contains(_selectedPagina)) {
-          _selectedPagina = _pagine.first;
+        if (isInitial && widget.initialPage != null) {
+          final foundPage = apiPages.firstWhere(
+            (p) {
+              final pId = p['id'] is int ? p['id'] as int : int.tryParse('${p['id']}');
+              final pNum = p['page_number'] is int ? p['page_number'] as int : int.tryParse('${p['page_number']}');
+              final pSort = p['sort_order'] is int ? p['sort_order'] as int : int.tryParse('${p['sort_order']}');
+              return pId == widget.initialPage || pNum == widget.initialPage || pSort == widget.initialPage;
+            },
+            orElse: () => apiPages.first,
+          );
+          final pageNum = foundPage['sort_order'] ?? foundPage['id'];
+          final title = foundPage['title'] ?? 'Pagina $pageNum';
+          _selectedPagina = 'Pagina $pageNum) $title';
+        } else if (isInitial && widget.quizTitle != null) {
+          final foundPage = apiPages.firstWhere(
+            (p) => p['title'] != null && widget.quizTitle!.toLowerCase().contains(p['title'].toString().toLowerCase()),
+            orElse: () => apiPages.first,
+          );
+          final pageNum = foundPage['sort_order'] ?? foundPage['id'];
+          final title = foundPage['title'] ?? 'Pagina $pageNum';
+          _selectedPagina = 'Pagina $pageNum) $title';
+        } else {
+          if (!_pagine.contains(_selectedPagina)) {
+            _selectedPagina = _pagine.first;
+          }
         }
       });
 
-      final selectedPageIndex = _pagine.indexOf(_selectedPagina);
-      final activePageMap = selectedPageIndex != -1 ? apiPages[selectedPageIndex] : apiPages.first;
-      final pId = activePageMap['id'] is int ? activePageMap['id'] as int : int.tryParse('${activePageMap['id']}') ?? 1;
-
-      final details = await ApiService.fetchPageDetails(pId);
-      if (details != null && mounted) {
+      if (isInitial && widget.questions != null && widget.questions!.isNotEmpty) {
         setState(() {
-          _pageImage = details['image']?.toString();
+          _pageImage = widget.initialPageImage ?? widget.questions!.first.image;
+          _pageImagePosition = widget.initialPageImagePosition ?? widget.questions!.first.imagePosition;
+          _quizzes = List.generate(widget.questions!.length, (index) {
+            final q = widget.questions![index];
+            return PatenteQuizItem(
+              rawId: q.id,
+              id: '${index + 1}',
+              italian: q.italian,
+              bangla: q.bangla,
+              isVero: q.isVero,
+              image: q.image,
+              imagePosition: q.imagePosition,
+              audioUrl: q.audio,
+              vocabulary: q.vocabulary,
+              audioNote: q.isVero
+                  ? 'এটি সত্য (Vero)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি সঠিক।'
+                  : 'এটি মিথ্যা (Falso)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি ভুল।',
+              giustoCount: 0,
+              sbagliatoCount: 0,
+            );
+          });
         });
-        if (details['questions'] is List) {
-          final apiQuestions = (details['questions'] as List).map((q) => McqQuestion.fromJson(q)).toList();
-          if (apiQuestions.isNotEmpty) {
-            setState(() {
-              _quizzes = List.generate(apiQuestions.length, (index) {
-                final q = apiQuestions[index];
-                return PatenteQuizItem(
-                  rawId: q.id,
-                  id: '${index + 1}',
-                  italian: q.italian,
-                  bangla: q.bangla,
-                  isVero: q.isVero,
-                  image: q.image,
-                  audioUrl: q.audio,
-                  audioNote: q.isVero
-                      ? 'এটি সত্য (Vero)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি সঠিক।'
-                      : 'এটি মিথ্যা (Falso)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি ভুল।',
-                  giustoCount: 0,
-                  sbagliatoCount: 0,
-                );
-              });
-            });
-            _syncSavedStatus();
-            return;
-          }
-        }
+        _syncSavedStatus();
+        return;
       }
+
+      await _loadQuizzesForCurrentPage(apiPages);
+      return;
     }
 
     if (widget.questions != null && widget.questions!.isNotEmpty) {
@@ -292,7 +407,9 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
             bangla: q.bangla,
             isVero: q.isVero,
             image: q.image,
+            imagePosition: q.imagePosition,
             audioUrl: q.audio,
+            vocabulary: q.vocabulary,
             audioNote: q.isVero
                 ? 'এটি সত্য (Vero)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি সঠিক।'
                 : 'এটি মিথ্যা (Falso)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি ভুল।',
@@ -424,13 +541,34 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
 
   Widget _buildTopHeaderSection(bool isDark) {
     String? bannerImg;
-    for (var q in _quizzes) {
-      if (q.image != null && q.image!.trim().isNotEmpty) {
-        bannerImg = q.image;
-        break;
+    final pos = (_pageImagePosition ?? '').toLowerCase().trim();
+    if (pos.contains('both') ||
+        pos.contains('top') ||
+        pos.contains('up') ||
+        pos.contains('banner') ||
+        pos.contains('header') ||
+        pos.contains('sopra') ||
+        pos.contains('উভয়')) {
+      bannerImg = _pageImage;
+    }
+
+    if (bannerImg == null || bannerImg.trim().isEmpty) {
+      for (var q in _quizzes) {
+        if (q.image != null && q.image!.trim().isNotEmpty) {
+          final qPos = (q.imagePosition ?? '').toLowerCase().trim();
+          if (qPos.contains('both') ||
+              qPos.contains('top') ||
+              qPos.contains('up') ||
+              qPos.contains('banner') ||
+              qPos.contains('header') ||
+              qPos.contains('sopra') ||
+              qPos.contains('উভয়')) {
+            bannerImg = q.image;
+            break;
+          }
+        }
       }
     }
-    bannerImg ??= _pageImage;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
@@ -466,11 +604,11 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
                     );
                   }).toList(),
                   onChanged: (val) {
-                    if (val != null) {
+                    if (val != null && val != _selectedCapitolo) {
                       setState(() {
                         _selectedCapitolo = val;
                       });
-                      _loadQuizzes();
+                      _loadPagesForChapter();
                     }
                   },
                 ),
@@ -508,12 +646,14 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
                       ),
                     );
                   }).toList(),
-                  onChanged: (val) {
-                    if (val != null) {
+                  onChanged: (val) async {
+                    if (val != null && val != _selectedPagina) {
                       setState(() {
                         _selectedPagina = val;
                       });
-                      _loadQuizzes();
+                      final chapterId = _getSelectedChapterId();
+                      final apiPages = await ApiService.fetchChapterPages(chapterId);
+                      await _loadQuizzesForCurrentPage(apiPages);
                     }
                   },
                 ),
@@ -522,26 +662,9 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
           ),
           const SizedBox(height: 12),
 
+          // Action Buttons: Select All (Left), Select (Middle, hidden when active), Unselect All (Right)
           Row(
             children: [
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: _toggleSelectMode,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isSelectActive ? const Color(0xFFEFFDF4) : (isDark ? Colors.white10 : Colors.grey.shade100),
-                    foregroundColor: _isSelectActive ? const Color(0xFF16A34A) : (isDark ? Colors.white70 : Colors.grey.shade800),
-                    elevation: 0,
-                    side: BorderSide(
-                      color: _isSelectActive ? const Color(0xFF22C55E) : Colors.grey.shade300,
-                      width: _isSelectActive ? 1.8 : 1.0,
-                    ),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                  ),
-                  child: const Text('Select', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                ),
-              ),
-              const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton(
                   onPressed: _selectAll,
@@ -556,6 +679,23 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
                   child: const Text('Select All', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
               ),
+              if (!_isSelectActive) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _toggleSelectMode,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isDark ? Colors.white10 : Colors.grey.shade100,
+                      foregroundColor: isDark ? Colors.white70 : Colors.grey.shade800,
+                      elevation: 0,
+                      side: BorderSide(color: Colors.grey.shade300),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    child: const Text('Select', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
               const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton(
@@ -631,17 +771,38 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
         margin: const EdgeInsets.only(bottom: 8, right: 8),
         child: ElevatedButton(
           onPressed: () {
-            showDialog(
-              context: context,
-              builder: (context) => InstantCorrectionDialog(
-                onSelection: (instantCorrection) {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const ExamSimulationScreen(),
-                    ),
-                  );
-                },
+            final selectedList = _quizzes.where((q) => q.isSelected).toList();
+            final targetQuizzes = selectedList.isNotEmpty ? selectedList : _quizzes;
+
+            if (targetQuizzes.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('কোনো প্রশ্ন পাওয়া যায়নি')),
+              );
+              return;
+            }
+
+            final mcqList = targetQuizzes.map((q) {
+              return McqQuestion(
+                id: q.rawId,
+                chapter: _getSelectedChapterId(),
+                chapterName: _selectedCapitolo,
+                italian: q.italian,
+                bangla: q.bangla,
+                isVero: q.isVero,
+                image: (q.image != null && q.image!.trim().isNotEmpty && q.image!.toLowerCase() != 'null') ? q.image : _pageImage,
+                imagePosition: q.imagePosition ?? _pageImagePosition,
+                audio: q.audioUrl,
+                vocabulary: q.vocabulary,
+              );
+            }).toList();
+
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ExamSimulationScreen(
+                  customQuestions: mcqList,
+                  examTitle: _selectedPagina,
+                ),
               ),
             );
           },
@@ -722,13 +883,44 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
       isDark: isDark,
       fontSize: 14.5,
       height: 1.45,
+      vocabulary: quiz.vocabulary,
       onTapWord: (rawWord, cleanWord) {
+        String? vocabImage;
+        String translation = '';
+
+        if (quiz.vocabulary != null) {
+          for (var item in quiz.vocabulary!) {
+            if (item is Map) {
+              final word = (item['italian'] ?? item['word'] ?? item['italian_word'] ?? '').toString().trim().toLowerCase();
+              final rawLower = rawWord.toLowerCase().trim();
+              final cleanLower = cleanWord.toLowerCase().trim();
+              if (word.isNotEmpty && (word == cleanLower || word == rawLower || rawLower == word || cleanLower == word)) {
+                final bn = (item['bangla'] ?? item['meaning'] ?? item['bangla_meaning'] ?? item['translation'] ?? '').toString().trim();
+                if (bn.isNotEmpty) {
+                  translation = bn;
+                }
+                final img = (item['image'] ?? item['image_path'] ?? item['img'] ?? item['photo'] ?? item['image_url'] ?? '').toString().trim();
+                if (img.isNotEmpty && img.toLowerCase() != 'null' && img.toLowerCase() != 'undefined' && img.toLowerCase() != 'none') {
+                  vocabImage = img;
+                }
+                break;
+              }
+            }
+          }
+        }
+
+        if (translation.isEmpty && QuestionDatabase.globalGlossary.containsKey(cleanWord.toLowerCase())) {
+          translation = QuestionDatabase.globalGlossary[cleanWord.toLowerCase()]!;
+        } else if (translation.isEmpty && QuestionDatabase.globalGlossary.containsKey(rawWord.toLowerCase())) {
+          translation = QuestionDatabase.globalGlossary[rawWord.toLowerCase()]!;
+        }
+
         showDialog(
           context: context,
           builder: (context) => GoogleTranslateDialog(
             italianText: cleanWord.isNotEmpty ? cleanWord : rawWord,
-            localTranslation: quiz.bangla,
-            imageUrl: quiz.image,
+            localTranslation: translation,
+            imageUrl: vocabImage,
           ),
         );
       },
@@ -739,7 +931,36 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
     );
   }
 
+  String? _resolveEffectiveQuizImage(PatenteQuizItem quiz) {
+    if (quiz.image != null &&
+        quiz.image!.trim().isNotEmpty &&
+        quiz.image!.trim().toLowerCase() != 'null' &&
+        quiz.image!.trim().toLowerCase() != 'undefined') {
+      return quiz.image;
+    }
+    if (quiz.vocabulary != null) {
+      for (var v in quiz.vocabulary!) {
+        if (v is Map) {
+          final img = (v['image'] ?? v['image_path'] ?? v['img'] ?? v['photo'] ?? v['image_url'])?.toString().trim();
+          if (img != null && img.isNotEmpty && img.toLowerCase() != 'null' && img.toLowerCase() != 'undefined') {
+            return img;
+          }
+        }
+      }
+    }
+    if (_pageImage != null &&
+        _pageImage!.trim().isNotEmpty &&
+        _pageImage!.trim().toLowerCase() != 'null' &&
+        _pageImage!.trim().toLowerCase() != 'undefined') {
+      return _pageImage;
+    }
+    return null;
+  }
+
   Widget _buildQuizCard(PatenteQuizItem quiz, bool isDark) {
+    final effectiveImg = _resolveEffectiveQuizImage(quiz);
+    final imgUrl = ApiService.formatImageUrl(effectiveImg);
+
     return Container(
       decoration: BoxDecoration(
         color: quiz.isSelected
@@ -870,15 +1091,24 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (quiz.image != null && quiz.image!.trim().isNotEmpty) ...[
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: Image.network(
-                      ApiService.formatImageUrl(quiz.image),
-                      width: 85,
-                      height: 65,
-                      fit: BoxFit.cover,
-                      errorBuilder: (ctx, err, stack) => const SizedBox.shrink(),
+                if (imgUrl.isNotEmpty) ...[
+                  GestureDetector(
+                    onTap: () => ImageZoomDialog.show(context, effectiveImg),
+                    child: Container(
+                      constraints: const BoxConstraints(
+                        maxWidth: 95,
+                        maxHeight: 90,
+                        minWidth: 70,
+                      ),
+                      alignment: Alignment.center,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          imgUrl,
+                          fit: BoxFit.contain,
+                          errorBuilder: (ctx, err, stack) => const SizedBox.shrink(),
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -1046,6 +1276,7 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
                         italianText: quiz.italian,
                         banglaText: quiz.bangla,
                         imageUrl: quiz.image,
+                        vocabulary: quiz.vocabulary,
                       ),
                     );
                   },
@@ -1056,17 +1287,19 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
                   color: quiz.isSaved ? Colors.green : Colors.grey.shade700,
                   onTap: () async {
                     final mcq = McqQuestion(
+                      id: quiz.rawId,
                       chapter: 1,
                       chapterName: _selectedCapitolo,
                       italian: quiz.italian,
                       bangla: quiz.bangla,
                       isVero: quiz.isVero,
                       image: quiz.image,
+                      vocabulary: quiz.vocabulary,
                     );
                     if (quiz.isSaved) {
-                      await BookmarkManager.removeQuestion(quiz.italian);
+                      await BookmarkManager.removeQuestion(quiz.italian, quiz.rawId, 'argomenti');
                     } else {
-                      await BookmarkManager.saveQuestion(mcq);
+                      await BookmarkManager.saveQuestion(mcq, type: 'argomenti');
                     }
                     setState(() => quiz.isSaved = !quiz.isSaved);
                   },
@@ -1088,30 +1321,32 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Divider(height: 1, color: isDark ? Colors.white10 : Colors.grey.shade200),
-            const SizedBox(height: 10),
+            if (quiz.giustoCount > 0 || quiz.sbagliatoCount > 0) ...[
+              const SizedBox(height: 12),
+              Divider(height: 1, color: isDark ? Colors.white10 : Colors.grey.shade200),
+              const SizedBox(height: 10),
 
-            // History stats at bottom of card
-            Center(
-              child: Column(
-                children: [
-                  Text(
-                    '(TU) Hai risposto:',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white70 : Colors.black87),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text('Giusto ${quiz.giustoCount} volte', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF22C55E))),
-                      const SizedBox(width: 14),
-                      Text('Sbagliato ${quiz.sbagliatoCount} volte', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFEF4444))),
-                    ],
-                  ),
-                ],
+              // History stats at bottom of card (Only shown when attempted)
+              Center(
+                child: Column(
+                  children: [
+                    Text(
+                      '(TU) Hai risposto:',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white70 : Colors.black87),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text('Giusto ${quiz.giustoCount} volte', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF22C55E))),
+                        const SizedBox(width: 14),
+                        Text('Sbagliato ${quiz.sbagliatoCount} volte', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFEF4444))),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),

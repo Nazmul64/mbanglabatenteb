@@ -1,6 +1,9 @@
-import 'dart:async';
+﻿import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:image_picker/image_picker.dart';
+import 'image_zoom_dialog.dart';
 import '../services/api_service.dart';
 
 class ChatMessageItem {
@@ -8,12 +11,14 @@ class ChatMessageItem {
   final bool isMe; // true = sent by user (green bubble right), false = received from support (grey bubble left)
   final String time;
   final String? attachmentPath;
+  final File? localFile;
 
   const ChatMessageItem({
     required this.text,
     required this.isMe,
     required this.time,
     this.attachmentPath,
+    this.localFile,
   });
 }
 
@@ -30,14 +35,18 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final ImagePicker _picker = ImagePicker();
 
   String _sessionId = '';
   String _userPhone = '';
   String _userName = '';
+  bool _isInitialLoading = true;
   bool _isVerified = false;
   bool _isActive = false;
   bool _isLoading = false;
   bool _isSubmittingVerification = false;
+  bool _isUploadingAttachment = false;
+  File? _selectedAttachmentFile;
 
   List<ChatMessageItem> _messages = [];
   Timer? _chatPollingTimer;
@@ -61,25 +70,96 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
 
   Future<void> _loadClientSession() async {
     final prefs = await SharedPreferences.getInstance();
-    _userPhone = prefs.getString('app_client_phone') ?? '';
-    final firstName = prefs.getString('app_client_first_name') ?? '';
-    final lastName = prefs.getString('app_client_last_name') ?? '';
+    _userPhone = (prefs.getString('app_client_phone') ?? '').trim();
+    String firstName = (prefs.getString('app_client_first_name') ?? '').trim();
+    String lastName = (prefs.getString('app_client_last_name') ?? '').trim();
     _sessionId = prefs.getString('app_client_session_id') ?? 'app_${DateTime.now().millisecondsSinceEpoch}';
     _isActive = prefs.getBool('app_client_is_active') ?? false;
+
+    // Clean up any legacy dummy defaults
+    if (firstName.toLowerCase() == 'customer' && (lastName.toLowerCase() == 'user' || lastName.isEmpty)) {
+      firstName = '';
+      lastName = '';
+      await prefs.remove('app_client_first_name');
+      await prefs.remove('app_client_last_name');
+    }
 
     if (_sessionId.isNotEmpty) {
       await prefs.setString('app_client_session_id', _sessionId);
     }
 
-    if (_userPhone.isNotEmpty && firstName.isNotEmpty) {
+    _firstNameController.text = firstName;
+    _lastNameController.text = lastName;
+    _phoneController.text = _userPhone;
+
+    final statusData = await ApiService.fetchClientStatus(sessionId: _sessionId, phone: _userPhone);
+    if (!mounted) return;
+
+    if (statusData != null) {
+      final isServerActive = statusData['is_active'] == true;
+      final sFirstName = (statusData['first_name'] ?? '').toString().trim();
+      final sLastName = (statusData['last_name'] ?? '').toString().trim();
+      final sPhone = (statusData['phone'] ?? '').toString().trim();
+
+      final effectivePhone = sPhone.isNotEmpty ? sPhone : _userPhone;
+      final effectiveFirstName = sFirstName.isNotEmpty ? sFirstName : firstName;
+      final effectiveLastName = sLastName.isNotEmpty ? sLastName : lastName;
+
+      // Only consider verified if we have actual customer details (First Name, Last Name, and Phone)
+      final bool hasFullDetails = effectiveFirstName.isNotEmpty &&
+          effectiveLastName.isNotEmpty &&
+          effectivePhone.isNotEmpty &&
+          effectiveFirstName.toLowerCase() != 'customer';
+
+      if (hasFullDetails) {
+        await prefs.setString('app_client_first_name', effectiveFirstName);
+        await prefs.setString('app_client_last_name', effectiveLastName);
+        await prefs.setString('app_client_phone', effectivePhone);
+        await prefs.setBool('app_client_is_active', isServerActive);
+
+        _firstNameController.text = effectiveFirstName;
+        _lastNameController.text = effectiveLastName;
+        _phoneController.text = effectivePhone;
+
+        setState(() {
+          _userPhone = effectivePhone;
+          _userName = '$effectiveFirstName $effectiveLastName'.trim();
+          _isActive = isServerActive;
+          _isVerified = true;
+          _isInitialLoading = false;
+        });
+
+        _startChatPolling();
+        return;
+      } else {
+        await prefs.setBool('app_client_is_active', isServerActive);
+        setState(() {
+          _userPhone = effectivePhone;
+          _isActive = isServerActive;
+          _isVerified = false;
+          _isInitialLoading = false;
+        });
+        return;
+      }
+    }
+
+    final bool hasValidLocalInfo = _userPhone.isNotEmpty &&
+        firstName.isNotEmpty &&
+        lastName.isNotEmpty &&
+        firstName.toLowerCase() != 'customer';
+
+    if (hasValidLocalInfo) {
       setState(() {
-        _isVerified = true;
+        _userPhone = _userPhone;
         _userName = '$firstName $lastName'.trim();
+        _isVerified = true;
+        _isInitialLoading = false;
       });
       _startChatPolling();
     } else {
       setState(() {
         _isVerified = false;
+        _isInitialLoading = false;
       });
     }
   }
@@ -100,7 +180,7 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     for (var item in apiData) {
       final sender = (item['sender'] ?? 'user').toString();
       final text = (item['message'] ?? '').toString();
-      final attachment = item['attachment_path']?.toString();
+      final attachment = (item['attachment_path'] ?? item['attachment'] ?? item['image'] ?? item['file'] ?? item['file_path'] ?? item['attachment_url'])?.toString();
       final timeStr = item['created_at']?.toString() ?? 'Just now';
 
       loaded.add(ChatMessageItem(
@@ -111,10 +191,12 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
       ));
     }
 
-    setState(() {
-      _messages = loaded;
-      _isLoading = false;
-    });
+    if (loaded.isNotEmpty || _messages.isEmpty) {
+      setState(() {
+        _messages = loaded;
+        _isLoading = false;
+      });
+    }
 
     _scrollToBottom();
   }
@@ -126,66 +208,203 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
 
     if (fName.isEmpty || lName.isEmpty || phone.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('সকল ক্ষেত্র (নাম, পদবী ও মোবাইল নাম্বার) পূরণ করুন।'), backgroundColor: Colors.red),
+        const SnackBar(content: Text('অনুগ্রহ করে আপনার নাম ও ফোন নম্বর দিন'), backgroundColor: Colors.red),
       );
       return;
     }
 
     setState(() => _isSubmittingVerification = true);
 
-    final res = await ApiService.verifyClient(
-      firstName: fName,
-      lastName: lName,
-      phone: phone,
-      sessionId: _sessionId,
-    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('app_client_first_name', fName);
+    await prefs.setString('app_client_last_name', lName);
+    await prefs.setString('app_client_phone', phone);
+    if (_sessionId.isEmpty) {
+      _sessionId = 'app_${DateTime.now().millisecondsSinceEpoch}';
+    }
+    await prefs.setString('app_client_session_id', _sessionId);
 
     if (!mounted) return;
-    setState(() => _isSubmittingVerification = false);
+    setState(() {
+      _isSubmittingVerification = false;
+      _userPhone = phone;
+      _userName = '$fName $lName'.trim();
+      _isVerified = true;
+    });
 
-    if (res != null && (res['success'] == true || res['status'] == 'success')) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('app_client_first_name', fName);
-      await prefs.setString('app_client_last_name', lName);
-      await prefs.setString('app_client_phone', phone);
-      await prefs.setString('app_client_session_id', _sessionId);
+    _startChatPolling();
 
-      final client = res['client'];
-      if (client != null && client['is_active'] == true) {
-        await prefs.setBool('app_client_is_active', true);
-        _isActive = true;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('আপনার তথ্য জমা হয়েছে। লাইভ চ্যাটে স্বাগতম!'), backgroundColor: Colors.green),
+    );
+
+    try {
+      final res = await ApiService.verifyClient(
+        firstName: fName,
+        lastName: lName,
+        phone: phone,
+        sessionId: _sessionId,
+      );
+
+      if (res != null) {
+        final canonicalSessionId = res['client']?['session_id']?.toString() ??
+                                   res['session_id']?.toString() ??
+                                   _sessionId;
+        _sessionId = canonicalSessionId;
+        await prefs.setString('app_client_session_id', canonicalSessionId);
+
+        final token = res['token'];
+        if (token != null) {
+          await prefs.setString('app_client_token', token.toString());
+          ApiService.setAuthToken(token.toString());
+        }
+
+        final licenseStatus = res['license_status'] ?? (res['client'] != null && res['client']['is_active'] == true ? 'active' : null);
+        if (licenseStatus != null) {
+          final isActive = licenseStatus == 'active';
+          await prefs.setBool('app_client_is_active', isActive);
+          if (mounted) setState(() => _isActive = isActive);
+        }
       }
 
-      setState(() {
-        _userPhone = phone;
-        _userName = '$fName $lName';
-        _isVerified = true;
-      });
-
-      _startChatPolling();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ ভেরিফিকেশন সম্পন্ন হয়েছে! চ্যাট শুরু করতে পারেন।'), backgroundColor: Colors.green),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('❌ ভেরিফিকেশন সম্পন্ন করা যায়নি। ইন্টারনেট সংযোগ চেক করুন।'), backgroundColor: Colors.orange),
-      );
+      final alreadySentKey = 'joined_msg_sent_${_sessionId}';
+      if (prefs.getBool(alreadySentKey) != true) {
+        await ApiService.sendChatMessage(
+          'হ্যালো! আমি অ্যাপ থেকে চ্যাটে যুক্ত হয়েছি',
+          _sessionId,
+          phone,
+          fName,
+          lName,
+        );
+        await prefs.setBool(alreadySentKey, true);
+      }
+      _fetchMessages();
+    } catch (e) {
+      debugPrint('Registration sync error: $e');
     }
   }
 
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
-    if (text.isEmpty) return;
+    final fileToSend = _selectedAttachmentFile;
 
-    final newMsg = ChatMessageItem(text: text, isMe: true, time: 'Just now');
+    if (text.isEmpty && fileToSend == null) return;
+
+    final displayText = text.isNotEmpty
+        ? text
+        : (fileToSend != null ? 'ছবি পাঠানো হয়েছে' : '');
+
+    final newMsg = ChatMessageItem(
+      text: displayText,
+      isMe: true,
+      time: 'Just now',
+      localFile: fileToSend,
+    );
+
     setState(() {
       _messages.add(newMsg);
       _messageController.clear();
+      _selectedAttachmentFile = null;
+      if (fileToSend != null) {
+        _isUploadingAttachment = true;
+      }
     });
     _scrollToBottom();
 
-    await ApiService.sendChatMessage(text, _sessionId, _userPhone);
-    _fetchMessages();
+    final fName = _firstNameController.text.trim();
+    final lName = _lastNameController.text.trim();
+    final success = await ApiService.sendChatMessage(
+          'হ্যালো! আমি অ্যাপ থেকে চ্যাটে যুক্ত হয়েছি',
+      _sessionId,
+      _userPhone,
+      fName,
+      lName,
+      fileToSend?.path,
+    );
+
+    if (mounted && fileToSend != null) {
+      setState(() => _isUploadingAttachment = false);
+    }
+
+    if (success) {
+      _fetchMessages();
+    } else if (fileToSend != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ছবি আপলোড করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _showAttachmentPicker() async {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Wrap(
+              children: [
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.photo_library_rounded, color: Color(0xFF4CAF50)),
+                  ),
+                  title: const Text('গ্যালারি / স্ক্রিনশট সিলেক্ট করুন', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  subtitle: const Text('আপনার গ্যালারি থেকে স্ক্রিনশট বা ছবি পাঠান', style: TextStyle(fontSize: 12)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _pickAndSetImage(ImageSource.gallery);
+                  },
+                ),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.camera_alt_rounded, color: Color(0xFF3B82F6)),
+                  ),
+                  title: const Text('ক্যামেরা দিয়ে ছবি তুলুন', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  subtitle: const Text('ক্যামেরা দিয়ে সরাসরি ছবি তুলে পাঠান', style: TextStyle(fontSize: 12)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _pickAndSetImage(ImageSource.camera);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _pickAndSetImage(ImageSource source) async {
+    try {
+      final XFile? pickedFile = await _picker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 1600,
+      );
+
+      if (pickedFile == null) return;
+
+      setState(() {
+        _selectedAttachmentFile = File(pickedFile.path);
+      });
+    } catch (e) {
+      debugPrint('Error picking image: $e');
+    }
   }
 
   Future<void> _activateLicenseFromCard(int days) async {
@@ -208,6 +427,7 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
         _isActive = true;
       });
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('🎉 লাইসেন্স সফলভাবে সক্রিয় করা হয়েছে! ($days দিন)'),
@@ -217,6 +437,7 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
       );
       _fetchMessages();
     } else {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('❌ লাইসেন্স সক্রিয় করতে সমস্যা হয়েছে।'), backgroundColor: Colors.red),
       );
@@ -239,10 +460,28 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    if (_isInitialLoading) {
+      return Scaffold(
+        backgroundColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+        appBar: AppBar(
+          title: const Text('Live Support Chat', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          backgroundColor: const Color(0xFF4CAF50),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ),
+        body: const Center(
+          child: CircularProgressIndicator(color: Color(0xFF4CAF50)),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
       appBar: AppBar(
-        // FIXED Overflow: Wrapped title in Expanded widget to prevent RenderFlex 23px overflow
         title: Row(
           children: [
             const Icon(Icons.support_agent_rounded, size: 22, color: Colors.white),
@@ -263,6 +502,17 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
           icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
+        actions: [
+          IconButton(
+            icon: Icon(_isVerified ? Icons.edit_note_rounded : Icons.chat_rounded, color: Colors.white),
+            tooltip: _isVerified ? 'তথ্য পরিবর্তন / ভেরিফিকেশন ফরম' : 'চ্যাটে ফিরে যান',
+            onPressed: () {
+              setState(() {
+                _isVerified = !_isVerified;
+              });
+            },
+          ),
+        ],
       ),
       body: !_isVerified ? _buildVerificationForm(isDark) : _buildChatBody(isDark),
     );
@@ -316,12 +566,12 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
                 controller: _firstNameController,
                 style: const TextStyle(fontSize: 13),
                 decoration: InputDecoration(
-                  hintText: 'নাম (First Name)',
-                  prefixIcon: const Icon(Icons.person_outline_rounded, size: 18, color: Colors.grey),
+                  labelText: 'First Name',
+                  prefixIcon: const Icon(Icons.person_outline_rounded, size: 20, color: Color(0xFF4CAF50)),
                   filled: true,
                   fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
               ),
               const SizedBox(height: 12),
@@ -331,32 +581,34 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
                 controller: _lastNameController,
                 style: const TextStyle(fontSize: 13),
                 decoration: InputDecoration(
-                  hintText: 'পদবী (Last Name)',
-                  prefixIcon: const Icon(Icons.badge_outlined, size: 18, color: Colors.grey),
+                  labelText: 'Last Name',
+                  prefixIcon: const Icon(Icons.person_outline_rounded, size: 20, color: Color(0xFF4CAF50)),
                   filled: true,
                   fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
               ),
               const SizedBox(height: 12),
 
-              // Field 3: Phone
+              // Field 3: Phone Number
               TextField(
                 controller: _phoneController,
                 keyboardType: TextInputType.phone,
                 style: const TextStyle(fontSize: 13),
                 decoration: InputDecoration(
-                  hintText: 'মোবাইল নাম্বার',
-                  prefixIcon: const Icon(Icons.phone_iphone_rounded, size: 18, color: Colors.grey),
+                  labelText: 'Phone Number',
+                  hintText: '017XXXXXXXX / +39...',
+                  prefixIcon: const Icon(Icons.phone_rounded, size: 20, color: Color(0xFF4CAF50)),
                   filled: true,
                   fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
               ),
               const SizedBox(height: 20),
 
+              // Submit Button
               SizedBox(
                 width: double.infinity,
                 height: 46,
@@ -365,12 +617,19 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF4CAF50),
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    elevation: 2,
                   ),
                   child: _isSubmittingVerification
                       ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : const Text('ভেরিফাই করুন', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                      : const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text('চ্যাটে প্রবেশ করুন', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                            SizedBox(width: 8),
+                            Icon(Icons.arrow_forward_rounded, size: 18),
+                          ],
+                        ),
                 ),
               ),
             ],
@@ -380,17 +639,54 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     );
   }
 
-  /// Step 2: Active Chat Body matching Screenshot 2
+  /// Step 2: Live Chat View
   Widget _buildChatBody(bool isDark) {
     return Column(
       children: [
+        // Status Banner
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: _isActive ? const Color(0xFFE8F5E9) : const Color(0xFFFFF3E0),
+            border: Border(
+              bottom: BorderSide(
+                color: _isActive ? const Color(0xFFC8E6C9) : const Color(0xFFFFE0B2),
+              ),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                _isActive ? Icons.verified_user_rounded : Icons.info_outline_rounded,
+                size: 18,
+                color: _isActive ? const Color(0xFF2E7D32) : const Color(0xFFE65100),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _isActive
+                      ? '✓ লাইসেন্স একটিভ আছে (সমস্ত ফিচার আনলক)'
+                      : 'লাইভ সাপোর্ট প্রতিনিধি আপনার সাথে যুক্ত আছেন।',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _isActive ? const Color(0xFF2E7D32) : const Color(0xFFE65100),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Message List
         Expanded(
           child: _messages.isEmpty
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24.0),
                     child: Text(
-                      'আপনার বার্তা লিখে চ্যাট শুরু করুন। রহমান স্যার খুব শীঘ্রই উত্তর দেবেন!',
+                      'হ্যালো $_userName! আপনার যেকোনো প্রশ্ন বা সহায়তার জন্য নিচে বার্তা বা স্ক্রিনশট পাঠান।',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: isDark ? Colors.grey[400] : Colors.grey[600], fontSize: 13),
                     ),
@@ -407,9 +703,72 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
                 ),
         ),
 
-        // Bottom Chat Input Bar
+        // Uploading indicator
+        if (_isUploadingAttachment)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            color: Colors.green.shade50,
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF4CAF50))),
+                SizedBox(width: 8),
+                Text('স্ক্রিনশট পাঠানো হচ্ছে...', style: TextStyle(fontSize: 11, color: Color(0xFF2E7D32))),
+              ],
+            ),
+          ),
+
+        // Attachment Preview Bar if image is selected
+        if (_selectedAttachmentFile != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+              border: Border(top: BorderSide(color: isDark ? Colors.white10 : Colors.grey.shade300)),
+            ),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.file(
+                    _selectedAttachmentFile!,
+                    width: 46,
+                    height: 46,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '📎 স্ক্রিনশট / ছবি সিলেক্ট করা হয়েছে',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF2E7D32)),
+                      ),
+                      Text(
+                        'সেন্ড বাটনে চাপ দিলে সরাসরি চলে যাবে',
+                        style: TextStyle(fontSize: 11, color: isDark ? Colors.grey[400] : Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.cancel_rounded, color: Colors.red, size: 22),
+                  tooltip: 'ছবি বাতিল করুন',
+                  onPressed: () {
+                    setState(() {
+                      _selectedAttachmentFile = null;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+
+        // Bottom Chat Input Bar with Attachment Option
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
           decoration: BoxDecoration(
             color: isDark ? const Color(0xFF1E293B) : Colors.white,
             border: Border(top: BorderSide(color: isDark ? Colors.white10 : Colors.grey.shade200)),
@@ -417,21 +776,32 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
           child: SafeArea(
             child: Row(
               children: [
+                // Image / Screenshot Attachment Button
+                IconButton(
+                  icon: const Icon(Icons.add_photo_alternate_rounded, color: Color(0xFF4CAF50), size: 26),
+                  tooltip: 'স্ক্রিনশট বা ছবি পাঠান',
+                  onPressed: _showAttachmentPicker,
+                ),
                 Expanded(
                   child: TextField(
                     controller: _messageController,
                     style: const TextStyle(fontSize: 13),
                     decoration: InputDecoration(
-                      hintText: 'Type Something...',
+                      hintText: _selectedAttachmentFile != null ? 'ক্যাপশন লিখুন...' : 'Type Something...',
                       filled: true,
                       fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.camera_alt_outlined, color: Colors.grey, size: 20),
+                        tooltip: 'ক্যামেরা দিয়ে ছবি তুলুন',
+                        onPressed: () => _pickAndSetImage(ImageSource.camera),
+                      ),
                     ),
                     onSubmitted: (_) => _sendMessage(),
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 InkWell(
                   onTap: _sendMessage,
                   borderRadius: BorderRadius.circular(24),
@@ -454,8 +824,21 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
 
   Widget _buildMessageBubble(ChatMessageItem msg, bool isDark) {
     // Check if message is a License Card
-    if (msg.text.startsWith('[LICENSE_CARD:') && msg.text.contains(']')) {
+    if (msg.text.contains('[LICENSE_CARD:') && msg.text.contains(']')) {
       return _buildLicenseCard(msg.text, isDark);
+    }
+
+    final hasImage = (msg.attachmentPath != null && msg.attachmentPath!.isNotEmpty) || msg.localFile != null;
+
+    String? fullImageUrl;
+    if (msg.attachmentPath != null && msg.attachmentPath!.isNotEmpty) {
+      if (msg.attachmentPath!.startsWith('http')) {
+        fullImageUrl = msg.attachmentPath;
+      } else {
+        final origin = ApiService.baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
+        final cleanPath = msg.attachmentPath!.startsWith('/') ? msg.attachmentPath! : '/${msg.attachmentPath!}';
+        fullImageUrl = '$origin$cleanPath';
+      }
     }
 
     return Padding(
@@ -463,7 +846,7 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
       child: Align(
         alignment: msg.isMe ? Alignment.centerRight : Alignment.centerLeft,
         child: Container(
-          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
             color: msg.isMe
@@ -482,13 +865,74 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                msg.text,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: msg.isMe
-                      ? (isDark ? Colors.white : Colors.black87)
-                      : (isDark ? Colors.white : Colors.black87),
+              // Display image if attachment exists
+              if (hasImage) ...[
+                GestureDetector(
+                  onTap: () {
+                    if (msg.localFile != null) {
+                      ImageZoomDialog.show(context, msg.localFile!.path);
+                    } else if (fullImageUrl != null) {
+                      ImageZoomDialog.show(context, fullImageUrl);
+                    }
+                  },
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: msg.localFile != null
+                        ? Image.file(
+                            msg.localFile!,
+                            width: double.infinity,
+                            height: 180,
+                            fit: BoxFit.cover,
+                          )
+                        : (fullImageUrl != null
+                            ? Image.network(
+                                fullImageUrl,
+                                width: double.infinity,
+                                height: 180,
+                                fit: BoxFit.cover,
+                                loadingBuilder: (context, child, progress) {
+                                  if (progress == null) return child;
+                                  return const SizedBox(
+                                    height: 120,
+                                    child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                                  );
+                                },
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Container(
+                                    height: 100,
+                                    color: Colors.grey.shade200,
+                                    child: const Center(
+                                      child: Icon(Icons.broken_image_rounded, color: Colors.grey, size: 36),
+                                    ),
+                                  );
+                                },
+                              )
+                            : const SizedBox()),
+                  ),
+                ),
+                const SizedBox(height: 6),
+              ],
+
+              if (msg.text.isNotEmpty && msg.text != 'ছবি পাঠানো হয়েছে')
+                Text(
+                  msg.text,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: msg.isMe
+                        ? (isDark ? Colors.white : Colors.black87)
+                        : (isDark ? Colors.white : Colors.black87),
+                  ),
+                ),
+              
+              const SizedBox(height: 2),
+              Align(
+                alignment: Alignment.bottomRight,
+                child: Text(
+                  msg.time,
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: msg.isMe ? (isDark ? Colors.white60 : Colors.black54) : Colors.grey,
+                  ),
                 ),
               ),
             ],
@@ -500,9 +944,9 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
 
   /// Render License Card inside Chat matching Admin & Web UI
   Widget _buildLicenseCard(String cardText, bool isDark) {
-    final matchKey = RegExp(r'key=(\d+)').firstMatch(cardText);
-    final matchDays = RegExp(r'days=(\d+)').firstMatch(cardText);
-    final keyStr = matchKey != null ? matchKey.group(1) : '365';
+    final matchKey = RegExp(r'key=(d+)').firstMatch(cardText);
+    final matchDays = RegExp(r'days=(d+)').firstMatch(cardText);
+    final keyStr = matchKey != null ? matchKey.group(1) : '901972';
     final daysStr = matchDays != null ? matchDays.group(1) : '365';
     final days = int.tryParse(daysStr ?? '365') ?? 365;
 
@@ -562,7 +1006,7 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     padding: const EdgeInsets.symmetric(vertical: 10),
                   ),
-                  child: const Text('Attiva Licenza (এক্টিভ করুন)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  child: const Text('Attiva Licenza (অ্যাক্টিভ করুন)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                 ),
             ],
           ),

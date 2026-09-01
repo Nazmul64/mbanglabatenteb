@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'triangle_pattern_painter.dart';
 import 'scegli_scheda_screen.dart';
-import 'quiz_practice_screen.dart';
+import 'exam_simulation_screen.dart';
 import '../models/question_database.dart';
 import '../models/mcq_question.dart';
 import '../services/api_service.dart';
@@ -88,40 +88,36 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
     return Container(
       height: 140,
       width: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade300, width: 1.5),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: Image.network(
-          url,
-          fit: BoxFit.contain,
-          errorBuilder: (ctx, err, stack) => const Center(child: Icon(Icons.school_rounded, size: 48, color: Colors.purple)),
-        ),
+      alignment: Alignment.center,
+      color: Colors.transparent,
+      child: Image.network(
+        url,
+        fit: BoxFit.contain,
+        errorBuilder: (ctx, err, stack) => const Center(child: Icon(Icons.school_rounded, size: 48, color: Colors.purple)),
       ),
     );
   }
 
+  bool _isSelectActive = false;
+
   void _unselectAll() {
     setState(() {
+      _isSelectActive = false;
       for (var cat in _categories) {
         cat.isSelected = false;
       }
     });
   }
 
-  void _toggleSelectCurrent() {
+  void _activateSelectMode() {
     setState(() {
-      for (var cat in _categories) {
-        cat.isSelected = !cat.isSelected;
-      }
+      _isSelectActive = true;
     });
   }
 
   void _selectAll() {
     setState(() {
+      _isSelectActive = true;
       for (var cat in _categories) {
         cat.isSelected = true;
       }
@@ -141,16 +137,28 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
     });
 
     List<McqQuestion> allQuestions = [];
-    for (final chId in selectedChapterIds) {
-      final pages = await ApiService.fetchChapterPages(chId);
-      for (final p in pages) {
-        final pId = p['id'] is int ? p['id'] as int : int.tryParse('${p['id']}') ?? 1;
-        final details = await ApiService.fetchPageDetails(pId);
+    try {
+      final pagesLists = await Future.wait(
+        selectedChapterIds.map((chId) => ApiService.fetchChapterPages(chId)),
+      );
+
+      final pageDetailFutures = <Future<Map<String, dynamic>?>>[];
+      for (final pages in pagesLists) {
+        for (final p in pages) {
+          final pId = p['id'] is int ? p['id'] as int : int.tryParse('${p['id']}') ?? 1;
+          pageDetailFutures.add(ApiService.fetchPageDetails(pId));
+        }
+      }
+
+      final pageDetailsList = await Future.wait(pageDetailFutures);
+      for (final details in pageDetailsList) {
         if (details != null && details['questions'] is List) {
           final qList = (details['questions'] as List).map((q) => McqQuestion.fromJson(q)).toList();
           allQuestions.addAll(qList);
         }
       }
+    } catch (e) {
+      debugPrint('Error starting quiz: $e');
     }
 
     if (mounted) {
@@ -160,7 +168,7 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
 
       if (allQuestions.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('সিলেক্ট করা চ্যাপ্টারে কোনো প্রশ্ন পাওয়া যায়নি')),
+          const SnackBar(content: Text('সিলেক্ট করা অংশে কোনো এমসিকিউ প্রশ্ন পাওয়া যায়নি')),
         );
         return;
       }
@@ -168,9 +176,9 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => QuizPracticeScreen(
-            questions: allQuestions,
-            quizTitle: 'Argomenti Quiz (${allQuestions.length} Quesiti)',
+          builder: (context) => ExamSimulationScreen(
+            customQuestions: allQuestions,
+            examTitle: 'Argomenti Test (${allQuestions.length} Quesiti)',
           ),
         ),
       );
@@ -217,11 +225,7 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
     }
     return Container(
       height: 140,
-      decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade300, width: 1.5),
-      ),
+      color: Colors.transparent,
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -245,11 +249,7 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
   Widget _buildRoadLayoutDiagram() {
     return Container(
       height: 140,
-      decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade300, width: 1.5),
-      ),
+      color: Colors.transparent,
       padding: const EdgeInsets.all(8),
       child: Column(
         children: [
@@ -332,11 +332,7 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
   Widget _buildDangerSignsDiagram() {
     return Container(
       height: 140,
-      decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade300, width: 1.5),
-      ),
+      color: Colors.transparent,
       child: Stack(
         alignment: Alignment.center,
         children: [
@@ -439,24 +435,12 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Three action buttons (Unselect All, Select, Select All)
+                  // Action buttons (Unselect All, Select [hidden when active], Select All)
                   Row(
                     children: [
                       Expanded(
-                        child: OutlinedButton(
-                          onPressed: _unselectAll,
-                          style: OutlinedButton.styleFrom(
-                            side: BorderSide(color: Colors.green.shade400),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                          ),
-                          child: const Text('Unselect All', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF4CAF50))),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
                         child: ElevatedButton(
-                          onPressed: _toggleSelectCurrent,
+                          onPressed: _unselectAll,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: isDark ? Colors.white10 : Colors.grey.shade100,
                             foregroundColor: isDark ? Colors.white70 : Colors.black87,
@@ -464,9 +448,25 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                             padding: const EdgeInsets.symmetric(vertical: 8),
                           ),
-                          child: const Text('Select', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          child: const Text('Unselect All', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                         ),
                       ),
+                      if (!_isSelectActive) ...[
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: _activateSelectMode,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: isDark ? Colors.white10 : Colors.grey.shade100,
+                              foregroundColor: isDark ? Colors.white70 : Colors.black87,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                            ),
+                            child: const Text('Select', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ],
                       const SizedBox(width: 8),
                       Expanded(
                         child: ElevatedButton(
@@ -560,12 +560,18 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
       ),
       child: InkWell(
         onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ScegliSchedaScreen(initialChapterId: cat.id),
-            ),
-          );
+          if (_isSelectActive) {
+            setState(() {
+              cat.isSelected = !cat.isSelected;
+            });
+          } else {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ScegliSchedaScreen(initialChapterId: cat.id),
+              ),
+            );
+          }
         },
         borderRadius: BorderRadius.circular(24),
         child: Padding(
@@ -573,7 +579,7 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Header: Chapter Title & Radio/Checkbox toggle (Matching Screenshots 2 & 3)
+              // Header: Chapter Title
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -586,31 +592,6 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
                       ),
                     ),
                   ),
-
-                  // Selection Circle Indicator
-                  InkWell(
-                    onTap: () {
-                      setState(() {
-                        cat.isSelected = !cat.isSelected;
-                      });
-                    },
-                    borderRadius: BorderRadius.circular(14),
-                    child: Container(
-                      width: 26,
-                      height: 26,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: cat.isSelected ? const Color(0xFF22C55E) : Colors.transparent,
-                        border: Border.all(
-                          color: cat.isSelected ? const Color(0xFF22C55E) : Colors.grey.shade400,
-                          width: 2,
-                        ),
-                      ),
-                      child: cat.isSelected
-                          ? const Icon(Icons.check_rounded, size: 16, color: Colors.white)
-                          : null,
-                    ),
-                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -619,15 +600,6 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
               ClipRRect(
                 borderRadius: BorderRadius.circular(16),
                 child: cat.diagram,
-              ),
-              const SizedBox(height: 12),
-
-              // Stats Row: Progresso Label
-              const Center(
-                child: Text(
-                  'Progresso',
-                  style: TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold),
-                ),
               ),
             ],
           ),

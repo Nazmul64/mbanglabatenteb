@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'triangle_pattern_painter.dart';
 import 'google_translate_dialog.dart';
-import '../models/bookmark_manager.dart';
 import '../services/html_text_helper.dart';
+import '../models/question_database.dart';
 
 class ExamResultItem {
   final int index;
@@ -288,8 +288,8 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
         color: isDark ? const Color(0xFF1E294B) : Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: cardColor.withOpacity(0.4),
-          width: 1.5,
+          color: cardColor,
+          width: 2.0,
         ),
         boxShadow: [
           BoxShadow(
@@ -475,11 +475,19 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
       isDark: isDark,
       fontSize: 13.0,
       onTapWord: (rawWord, cleanWord) {
+        String translation = '';
+        if (QuestionDatabase.globalGlossary.containsKey(cleanWord.toLowerCase())) {
+          translation = QuestionDatabase.globalGlossary[cleanWord.toLowerCase()]!;
+        }
+        if (translation.isEmpty && QuestionDatabase.globalGlossary.containsKey(rawWord.toLowerCase())) {
+          translation = QuestionDatabase.globalGlossary[rawWord.toLowerCase()]!;
+        }
+
         showDialog(
           context: context,
           builder: (context) => GoogleTranslateDialog(
-            italianText: cleanWord.isNotEmpty ? cleanWord : rawWord,
-            localTranslation: 'ইতালিয়ান প্যাটেন্টে বি শব্দ: ${cleanWord.isNotEmpty ? cleanWord : rawWord}',
+            italianText: rawWord.isNotEmpty ? rawWord : cleanWord,
+            localTranslation: translation,
           ),
         );
       },

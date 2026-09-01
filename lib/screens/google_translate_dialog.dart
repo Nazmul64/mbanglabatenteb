@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import '../services/api_service.dart';
 
 class GoogleTranslateDialog extends StatefulWidget {
@@ -20,14 +21,46 @@ class GoogleTranslateDialog extends StatefulWidget {
 }
 
 class _GoogleTranslateDialogState extends State<GoogleTranslateDialog> {
-  String _googleTranslation = '';
+  String _translation = '';
   bool _isLoading = true;
   bool _isBookmarked = false;
+  final FlutterTts _flutterTts = FlutterTts();
+
+  bool get _hasValidImage {
+    final img = widget.imageUrl?.trim() ?? '';
+    return img.isNotEmpty &&
+        img.toLowerCase() != 'null' &&
+        img.toLowerCase() != 'undefined' &&
+        img.toLowerCase() != 'none';
+  }
 
   @override
   void initState() {
     super.initState();
-    _fetchTranslation();
+    _initTts();
+    if (widget.localTranslation.trim().isNotEmpty) {
+      _translation = widget.localTranslation.trim();
+      _isLoading = false;
+    } else {
+      _fetchTranslation();
+    }
+  }
+
+  @override
+  void dispose() {
+    _flutterTts.stop();
+    super.dispose();
+  }
+
+  void _initTts() {
+    _flutterTts.setLanguage('it-IT');
+    _flutterTts.setVolume(1.0);
+    _flutterTts.setPitch(1.0);
+  }
+
+  Future<void> _speakWord() async {
+    await _flutterTts.setLanguage('it-IT');
+    await _flutterTts.speak(widget.italianText);
   }
 
   Future<void> _fetchTranslation() async {
@@ -48,7 +81,7 @@ class _GoogleTranslateDialogState extends State<GoogleTranslateDialog> {
           }
           if (mounted) {
             setState(() {
-              _googleTranslation = result;
+              _translation = result;
               _isLoading = false;
             });
           }
@@ -60,9 +93,9 @@ class _GoogleTranslateDialogState extends State<GoogleTranslateDialog> {
     }
     if (mounted) {
       setState(() {
-        _googleTranslation = widget.localTranslation.isNotEmpty
+        _translation = widget.localTranslation.isNotEmpty
             ? widget.localTranslation
-            : 'অনুবাদ লোড করা যায়নি।';
+            : 'অনুবাদ পাওয়া যায়নি';
         _isLoading = false;
       });
     }
@@ -92,7 +125,7 @@ class _GoogleTranslateDialogState extends State<GoogleTranslateDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Bar: Uppercase word title + Close button X (Matching Screenshot 3)
+            // Header Bar: Uppercase word title + Close button X
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -119,66 +152,80 @@ class _GoogleTranslateDialogState extends State<GoogleTranslateDialog> {
             ),
             const SizedBox(height: 12),
 
-            // Optional Image Preview Box (Only displayed if valid image URL is uploaded)
-            if (widget.imageUrl != null && widget.imageUrl!.trim().isNotEmpty) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  width: double.infinity,
-                  height: 140,
-                  color: isDark ? Colors.white10 : const Color(0xFFF8FAFC),
-                  child: Image.network(
-                    ApiService.formatImageUrl(widget.imageUrl),
-                    fit: BoxFit.contain,
-                    errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            // Word Title
-            Text(
-              widget.italianText,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: isDark ? Colors.white70 : Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 4),
-
-            // Bangla Translation (Matching Screenshot 3)
-            _isLoading
-                ? const SizedBox(
-                    height: 24,
-                    child: Center(
-                      child: SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF4CAF50)),
+            Flexible(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Word / Phrase Title in Italian
+                    Text(
+                      widget.italianText,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white70 : Colors.black87,
                       ),
                     ),
-                  )
-                : Text(
-                    _googleTranslation.isNotEmpty ? _googleTranslation : widget.localTranslation,
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w500,
-                      color: isDark ? Colors.white70 : Colors.black87,
-                    ),
-                  ),
-            const SizedBox(height: 20),
+                    const SizedBox(height: 12),
 
-            // Action Icons Row: Flag (🇧🇩 Bangla), Bookmark, Search, Audio (Matching Screenshot 3)
+                    // ONLY display Image Preview Box if this specific word actually has an image!
+                    if (_hasValidImage) ...[
+                      Center(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            width: double.infinity,
+                            constraints: const BoxConstraints(maxHeight: 180),
+                            color: isDark ? Colors.white10 : const Color(0xFFF8FAFC),
+                            child: Image.network(
+                              ApiService.formatImageUrl(widget.imageUrl),
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+
+                    // Bangla Translation Box
+                    _isLoading
+                        ? const SizedBox(
+                            height: 24,
+                            child: Center(
+                              child: SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF22C55E)),
+                              ),
+                            ),
+                          )
+                        : Text(
+                            _translation,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              height: 1.5,
+                              color: isDark ? Colors.white : const Color(0xFF16A34A),
+                            ),
+                          ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Action Icons Row: Flag (🇧🇩 Bangla), Bookmark, Search, Audio
             Row(
               children: [
-                // Flag & Language Label
+                // BD Flag & Label
                 Column(
                   children: [
                     Container(
-                      width: 28,
-                      height: 28,
+                      width: 26,
+                      height: 26,
                       decoration: const BoxDecoration(
                         color: Color(0xFF006A4E), // BD Flag Green
                         shape: BoxShape.circle,
@@ -203,7 +250,7 @@ class _GoogleTranslateDialogState extends State<GoogleTranslateDialog> {
                 IconButton(
                   icon: Icon(
                     _isBookmarked ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-                    color: _isBookmarked ? const Color(0xFF4CAF50) : Colors.black87,
+                    color: _isBookmarked ? const Color(0xFF22C55E) : (isDark ? Colors.white70 : Colors.black87),
                     size: 22,
                   ),
                   onPressed: () {
@@ -219,36 +266,16 @@ class _GoogleTranslateDialogState extends State<GoogleTranslateDialog> {
                   },
                 ),
 
-                // Search icon
-                IconButton(
-                  icon: const Icon(Icons.search_rounded, color: Colors.black87, size: 22),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('"${widget.italianText}" অনুসন্ধানের জন্য ডিকশনারিতে নিয়ে যাওয়া হচ্ছে...'),
-                        duration: const Duration(seconds: 1),
-                      ),
-                    );
-                  },
-                ),
-
                 // Audio Speaker icon
                 IconButton(
-                  icon: const Icon(Icons.volume_up_rounded, color: Colors.black87, size: 22),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('"${widget.italianText}" এর উচ্চারণ প্লে হচ্ছে...'),
-                        duration: const Duration(seconds: 1),
-                      ),
-                    );
-                  },
+                  icon: Icon(Icons.volume_up_rounded, color: isDark ? Colors.white70 : Colors.black87, size: 22),
+                  onPressed: _speakWord,
                 ),
               ],
             ),
             const SizedBox(height: 16),
 
-            // Big OK Button at bottom matching Screenshot 3
+            // Big OK Button at bottom
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -269,22 +296,6 @@ class _GoogleTranslateDialogState extends State<GoogleTranslateDialog> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildFallbackImage(bool isDark) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.image_outlined, size: 36, color: isDark ? Colors.white38 : Colors.grey.shade400),
-          const SizedBox(height: 6),
-          Text(
-            'চিত্র উদাহরণ',
-            style: TextStyle(fontSize: 11, color: isDark ? Colors.white38 : Colors.grey.shade500),
-          ),
-        ],
       ),
     );
   }

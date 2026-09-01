@@ -1,34 +1,35 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/slider_model.dart';
 
 class ApiService {
-  // Candidate base URLs for live production, physical devices, emulators, and local desktop testing
+  // Candidate Base URLs (Local Development Server Mode)
   static const List<String> candidateBaseUrls = [
-    'http://mbanglapatenteb.com/api/v1',
-    'https://mbanglapatenteb.com/api/v1',
-    'http://192.168.42.29:8000/api/v1',  // Active PC WiFi IP
-    'http://192.168.0.100:8000/api/v1',  // Active PC LAN IP
-    'http://10.0.2.2:8000/api/v1',       // Android Emulator
+    'http://192.168.0.101:8000/api/v1',
+    'http://192.168.42.81:8000/api/v1',
+    'http://10.0.2.2:8000/api/v1',
     'http://127.0.0.1:8000/api/v1',
     'http://localhost:8000/api/v1',
   ];
 
-  static String? _resolvedBaseUrl;
+  static String? _resolvedBaseUrl = 'http://192.168.0.101:8000/api/v1';
 
-  /// Initialize server configuration by probing candidate URLs and fetching active settings
+  /// Initialize server configuration by probing local URLs and fetching active settings
   static Future<void> initServerConfig() async {
     for (final base in candidateBaseUrls) {
       try {
         final uri = Uri.parse('$base/settings');
-        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 1800));
+        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 1500));
         if (response.statusCode == 200) {
+          _resolvedBaseUrl = base;
           final decoded = json.decode(response.body);
           if (decoded is Map<String, dynamic>) {
             _checkAndApplyServerMode(decoded, currentCandidate: base);
-            return;
           }
+          break;
         }
       } catch (_) {}
     }
@@ -36,17 +37,10 @@ class ApiService {
 
   /// Inspect setting response payload to set server mode & active base URL dynamically
   static void _checkAndApplyServerMode(Map<String, dynamic> data, {String? currentCandidate}) {
-    final mode = (data['server_mode'] ?? data['qr_target_mode'] ?? '').toString().toLowerCase();
-    final liveUrl = (data['live_server_url'] ?? data['qr_live_url'] ?? 'http://mbanglapatenteb.com').toString();
-
-    if (mode == 'live') {
-      final cleanLiveUrl = liveUrl.endsWith('/') ? liveUrl.substring(0, liveUrl.length - 1) : liveUrl;
-      final liveApiBase = '$cleanLiveUrl/api/v1';
-      _resolvedBaseUrl = liveApiBase;
-      debugPrint('📢 Admin Server Mode set to LIVE: $_resolvedBaseUrl');
-    } else if (currentCandidate != null) {
+    if (currentCandidate != null) {
       _resolvedBaseUrl = currentCandidate;
-      debugPrint('📢 Admin Server Mode set to LOCAL: $_resolvedBaseUrl');
+      debugPrint('📢 Active Server Base URL (Local Mode): $_resolvedBaseUrl');
+      return;
     }
   }
 
@@ -62,13 +56,24 @@ class ApiService {
   /// Helper to convert relative image path (/uploads/...) to full absolute HTTP URL
   static String formatImageUrl(String? path) {
     if (path == null || path.trim().isEmpty) return '';
-    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    if (path.trim().toLowerCase() == 'null' || path.trim().toLowerCase() == 'undefined') return '';
     if (path.startsWith('file://')) return '';
+
     final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
-    final cleanPath = path.startsWith('/') ? path : '/$path';
-    final result = '$serverOrigin$cleanPath';
-    if (!result.startsWith('http://') && !result.startsWith('https://')) return '';
-    return result;
+    var cleanPath = path.trim();
+
+    if (cleanPath.contains('127.0.0.1:8000') || cleanPath.contains('localhost:8000')) {
+      cleanPath = cleanPath
+          .replaceAll('http://127.0.0.1:8000', serverOrigin)
+          .replaceAll('https://127.0.0.1:8000', serverOrigin)
+          .replaceAll('http://localhost:8000', serverOrigin)
+          .replaceAll('https://localhost:8000', serverOrigin);
+      return cleanPath;
+    }
+
+    if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) return cleanPath;
+    final normalized = cleanPath.startsWith('/') ? cleanPath : '/$cleanPath';
+    return '$serverOrigin$normalized';
   }
 
   static final Map<String, http.Response> _apiResponseCache = {};
@@ -442,13 +447,58 @@ class ApiService {
     }
   }
 
+  static Future<Map<String, String>> _getUserAuthParams() async {
+    final params = <String, String>{};
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final firstName = prefs.getString('app_client_first_name') ??
+          prefs.getString('first_name') ??
+          prefs.getString('user_name') ??
+          prefs.getString('name');
+      final lastName = prefs.getString('app_client_last_name') ??
+          prefs.getString('last_name');
+      final phone = prefs.getString('app_client_phone') ??
+          prefs.getString('user_phone') ??
+          prefs.getString('phone');
+      var sessionId = prefs.getString('app_client_session_id') ??
+          prefs.getString('app_session_id') ??
+          prefs.getString('session_id') ??
+          prefs.getString('device_id');
+      if (sessionId == null || sessionId.trim().isEmpty) {
+        sessionId = 'app_${DateTime.now().millisecondsSinceEpoch}';
+        await prefs.setString('app_client_session_id', sessionId);
+      }
+      final userId = prefs.getInt('user_id');
+
+      if (firstName != null && firstName.trim().isNotEmpty) {
+        params['first_name'] = firstName.trim();
+        params['name'] = firstName.trim();
+      }
+      if (lastName != null && lastName.trim().isNotEmpty) {
+        params['last_name'] = lastName.trim();
+      }
+      if (phone != null && phone.trim().isNotEmpty) {
+        params['phone'] = phone.trim();
+        params['user_phone'] = phone.trim();
+      }
+      if (sessionId.trim().isNotEmpty) {
+        params['session_id'] = sessionId.trim();
+      }
+      if (userId != null && userId > 0) {
+        params['user_id'] = '$userId';
+      }
+    } catch (_) {}
+    return params;
+  }
+
   // ─────────────────────────────────────────────────────
   // 📌 9. Saved MCQs & Notes API
   // ─────────────────────────────────────────────────────
   /// GET /api/v1/saved-mcqs
   static Future<List<dynamic>> fetchSavedMcqs() async {
     try {
-      final response = await _getWithFallback('/saved-mcqs');
+      final params = await _getUserAuthParams();
+      final response = await _getWithFallback('/saved-mcqs', queryParameters: params.isNotEmpty ? params : null);
       return _extractList(response);
     } catch (e) {
       debugPrint('Error fetching saved mcqs: $e');
@@ -457,13 +507,20 @@ class ApiService {
   }
 
   /// POST /api/v1/saved-mcqs/toggle
-  static Future<bool> toggleSavedMcq(dynamic questionId) async {
+  static Future<Map<String, dynamic>?> toggleSavedMcq(dynamic questionId, {String? type, String? italian}) async {
     try {
-      final response = await _postWithFallback('/saved-mcqs/toggle', {'question_id': questionId});
-      return response != null && (response.statusCode == 200 || response.statusCode == 201);
+      final authParams = await _getUserAuthParams();
+      final body = <String, dynamic>{
+        'question_id': questionId,
+        if (italian != null && italian.isNotEmpty) 'italian': italian,
+        if (type != null && type.isNotEmpty) 'type': type,
+        ...authParams,
+      };
+      final response = await _postWithFallback('/saved-mcqs/toggle', body);
+      return _extractMap(response);
     } catch (e) {
       debugPrint('Error toggling saved mcq: $e');
-      return false;
+      return null;
     }
   }
 
@@ -509,7 +566,8 @@ class ApiService {
   /// GET /api/v1/correct-mcqs
   static Future<List<dynamic>> fetchCorrectMcqs() async {
     try {
-      final response = await _getWithFallback('/correct-mcqs');
+      final params = await _getUserAuthParams();
+      final response = await _getWithFallback('/correct-mcqs', queryParameters: params.isNotEmpty ? params : null);
       return _extractList(response);
     } catch (e) {
       debugPrint('Error fetching correct mcqs: $e');
@@ -520,7 +578,8 @@ class ApiService {
   /// GET /api/v1/wrong-mcqs
   static Future<List<dynamic>> fetchWrongMcqs() async {
     try {
-      final response = await _getWithFallback('/wrong-mcqs');
+      final params = await _getUserAuthParams();
+      final response = await _getWithFallback('/wrong-mcqs', queryParameters: params.isNotEmpty ? params : null);
       return _extractList(response);
     } catch (e) {
       debugPrint('Error fetching wrong mcqs: $e');
@@ -659,10 +718,19 @@ class ApiService {
   // ─────────────────────────────────────────────────────
   // 📌 16. Client Verification & App Licensing API
   // ─────────────────────────────────────────────────────
+  static String? _authToken;
+  static void setAuthToken(String token) {
+    _authToken = token;
+  }
+
   /// GET /api/v1/client/status
-  static Future<Map<String, dynamic>?> fetchClientStatus() async {
+  static Future<Map<String, dynamic>?> fetchClientStatus({String? sessionId, String? phone}) async {
     try {
-      final response = await _getWithFallback('/client/status');
+      final queryParams = <String, String>{};
+      if (sessionId != null && sessionId.isNotEmpty) queryParams['session_id'] = sessionId;
+      if (phone != null && phone.isNotEmpty) queryParams['phone'] = phone;
+
+      final response = await _getWithFallback('/client/status', queryParameters: queryParams.isNotEmpty ? queryParams : null);
       return _extractMap(response);
     } catch (e) {
       debugPrint('Error fetching client status: $e');
@@ -670,16 +738,22 @@ class ApiService {
     }
   }
 
-  /// POST /api/v1/client/verify
-  static Future<Map<String, dynamic>?> verifyClientLicense(String activationKey) async {
-    try {
-      final response = await _postWithFallback('/client/verify', {'activation_key': activationKey});
-      return _extractMap(response);
-    } catch (e) {
-      debugPrint('Error verifying client license: $e');
-      return null;
+  /// Check license status for user phone or session ID
+  static Future<String> checkLicenseStatus({String? userPhone, String? sessionId}) async {
+    final statusMap = await fetchClientStatus(sessionId: sessionId, phone: userPhone);
+    if (statusMap != null) {
+      final bool isActive = (statusMap['free_access_mode'] == true ||
+          statusMap['qr_protection_enabled'] == false ||
+          statusMap['is_active'] == true ||
+          statusMap['license_status'] == 'active' ||
+          statusMap['status'] == 'active');
+      return isActive ? 'active' : (statusMap['license_status'] ?? statusMap['status'] ?? 'inactive').toString();
     }
+    return 'active';
   }
+
+
+
 
   // ─────────────────────────────────────────────────────
   // Backward Compatibility & Utility Methods
@@ -699,7 +773,9 @@ class ApiService {
 
   static Future<bool> logUserMcqResult(int questionId, bool isCorrect, String userAnswer) async {
     try {
+      final authParams = await _getUserAuthParams();
       final response = await _postWithFallback('/user-mcq-results/log', {
+        ...authParams,
         'results': [
           {
             'question_id': questionId,
@@ -715,10 +791,20 @@ class ApiService {
     }
   }
 
-  static Future<bool> unlockWebQrGate(String qrData) async {
+  static Future<Map<String, dynamic>?> fetchSettings() => fetchPatenteSocialSettings();
+
+  static Future<bool> unlockWebQrGate(
+    String qrData, {
+    String? userPhone,
+    String? sessionId,
+    String? firstName,
+    String? lastName,
+    String? licenseKey,
+  }) async {
     // --- Parse token and origin from the scanned QR URL ---
     String token = qrData;
     String? qrOrigin; // base URL embedded in the QR code (always live server)
+    String targetSessionId = '';
 
     if (qrData.startsWith('http')) {
       try {
@@ -727,13 +813,24 @@ class ApiService {
         token = uri.queryParameters['token']
             ?? uri.queryParameters['session_id']
             ?? qrData;
+        targetSessionId = uri.queryParameters['session_id'] ?? '';
       } catch (_) {}
+    } else if (qrData.contains('session_id=')) {
+      final match = RegExp(r'session_id=([a-zA-Z0-9_\-\.]+)').firstMatch(qrData);
+      if (match != null) targetSessionId = match.group(1)!;
     }
 
     final payload = {
-      'token'   : token,
-      'qr_code' : qrData,
-      'code'    : token,
+      'token': token,
+      'qr_code': qrData,
+      'code': token,
+      'target_session_id': targetSessionId,
+      'session_id': targetSessionId.isNotEmpty ? targetSessionId : (sessionId ?? ''),
+      if (userPhone != null && userPhone.isNotEmpty) 'phone': userPhone,
+      if (userPhone != null && userPhone.isNotEmpty) 'user_phone': userPhone,
+      if (firstName != null && firstName.isNotEmpty) 'first_name': firstName,
+      if (lastName != null && lastName.isNotEmpty) 'last_name': lastName,
+      if (licenseKey != null && licenseKey.isNotEmpty) 'license_key': licenseKey,
     };
 
     // Build ordered list of origins to try:
@@ -741,8 +838,7 @@ class ApiService {
     // 2. Live domain fallbacks
     // 3. Local candidates (for dev mode)
     final orderedOrigins = <String>{};
-    if (qrOrigin != null) orderedOrigins.add(qrOrigin);
-    orderedOrigins.addAll(['http://mbanglapatenteb.com', 'https://mbanglapatenteb.com']);
+    if (qrOrigin != null && !qrOrigin.contains('mbanglapatenteb.com')) orderedOrigins.add(qrOrigin);
     for (final base in candidateBaseUrls) {
       orderedOrigins.add(base.replaceAll(RegExp(r'/api/v1/?$'), ''));
     }
@@ -772,8 +868,6 @@ class ApiService {
     debugPrint('❌ QR gate unlock failed for all origins');
     return false;
   }
-
-
 
   static Future<List<dynamic>> fetchExamQuestions() => generateSchedaEsame();
   static Future<List<dynamic>> fetchClasses() async {
@@ -835,7 +929,14 @@ class ApiService {
   }
 
   /// Send live chat message from client
-  static Future<bool> sendChatMessage(String message, [String? sessionId, String? phone]) async {
+  static Future<bool> sendChatMessage(
+    String message, [
+    String? sessionId,
+    String? phone,
+    String? firstName,
+    String? lastName,
+    String? attachmentPath,
+  ]) async {
     try {
       final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
       final uri = Uri.parse('$serverOrigin/api/chat/messages');
@@ -843,6 +944,9 @@ class ApiService {
         'message': message,
         if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
         if (phone != null && phone.isNotEmpty) 'phone': phone,
+        if (firstName != null && firstName.isNotEmpty) 'first_name': firstName,
+        if (lastName != null && lastName.isNotEmpty) 'last_name': lastName,
+        if (attachmentPath != null && attachmentPath.isNotEmpty) 'attachment_path': attachmentPath,
       };
 
       final response = await http.post(uri, headers: defaultHeaders, body: json.encode(payload)).timeout(const Duration(seconds: 4));

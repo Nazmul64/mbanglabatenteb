@@ -12,6 +12,7 @@ import 'google_translate_dialog.dart';
 import 'full_translate_dialog.dart';
 import 'tutor_chat_screen.dart';
 import 'question_note_dialog.dart';
+import 'image_zoom_dialog.dart';
 import 'exam_result_screen.dart';
 
 class ExamQuestion {
@@ -67,7 +68,6 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
   // Timer variables
   Timer? _examTimer;
   int _secondsRemaining = 1200; // 20 minutes
-  bool _examCompleted = false;
 
   // Audio and TTS player
   final FlutterTts _flutterTts = FlutterTts();
@@ -82,7 +82,6 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
     super.initState();
     _initAudioAndTts();
     _initializeQuestions();
-    _startExamTimer();
   }
 
   @override
@@ -152,7 +151,7 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
         }
 
         customLoaded.add(ExamQuestion(
-          id: '${index + 1}',
+          id: (q.id != 0 ? q.id : (index + 1)).toString(),
           statement: statement,
           isVero: q.isVero,
           translation: q.bangla,
@@ -170,6 +169,7 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
           _questions = customLoaded;
           _isLoading = false;
         });
+        _startExamTimer();
       }
       return;
     }
@@ -182,7 +182,19 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
       if (apiData.isNotEmpty) {
         for (int index = 0; index < apiData.length; index++) {
           final q = apiData[index];
-          final statement = (q['italian'] ?? '').toString();
+          final statement = (q['italian'] ?? q['domanda'] ?? q['question'] ?? q['text'] ?? '').toString();
+          if (statement.trim().isEmpty) continue;
+
+          final rawIsVero = q['is_vero'] ?? q['correct_answer'] ?? q['answer'] ?? q['isVero'];
+          bool isVero = true;
+          if (rawIsVero is bool) {
+            isVero = rawIsVero;
+          } else if (rawIsVero is String) {
+            isVero = rawIsVero.toLowerCase() == 'vero' || rawIsVero == '1' || rawIsVero.toLowerCase() == 'true';
+          } else if (rawIsVero is int) {
+            isVero = rawIsVero == 1;
+          }
+
           final Map<String, String> help = {};
           final words = statement.toLowerCase().split(RegExp(r"[^a-zA-Z']"));
           for (var word in words) {
@@ -191,17 +203,22 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
             }
           }
 
+          final img = (q['image'] ?? q['image_path'] ?? q['img'] ?? q['photo'] ?? q['image_url'] ?? q['cover_image'])?.toString();
+          final audio = (q['audio'] ?? q['voice'] ?? q['mp3'] ?? q['audio_url'])?.toString();
+          final translation = (q['bangla'] ?? q['translation'] ?? q['traduzione'] ?? q['bn_question'] ?? q['bn_translation'] ?? '').toString();
+          final rawQId = q['id'] ?? (index + 1);
+
           loaded.add(ExamQuestion(
-            id: '${index + 1}',
+            id: '$rawQId',
             statement: statement,
-            isVero: q['is_vero'] == true || q['is_vero'] == 1 || q['is_vero'] == '1',
-            translation: (q['bangla'] ?? '').toString(),
+            isVero: isVero,
+            translation: translation,
             vocabularyHelp: help,
             vocabulary: q['vocabulary'] ?? q['vocabulary_underlines'],
-            chapter: q['chapter'] ?? 1,
-            chapterName: 'General Exam',
-            image: q['image']?.toString(),
-            audio: q['audio']?.toString(),
+            chapter: q['chapter'] is int ? q['chapter'] : int.tryParse(q['chapter']?.toString() ?? '1') ?? 1,
+            chapterName: q['chapter_name']?.toString() ?? 'General Exam',
+            image: img,
+            audio: audio,
           ));
         }
       }
@@ -240,10 +257,14 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
         _questions = loaded;
         _isLoading = false;
       });
+      if (_questions.isNotEmpty) {
+        _startExamTimer();
+      }
     }
   }
 
   void _startExamTimer() {
+    _examTimer?.cancel();
     _examTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_secondsRemaining > 0) {
         if (mounted) {
@@ -363,92 +384,126 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
     );
   }
 
-  void _showOpzioniModal(ExamQuestion currentQuestion) {
+  bool _showOpzioniToolbar = false;
+
+  void _toggleOpzioniToolbar() {
+    setState(() {
+      _showOpzioniToolbar = !_showOpzioniToolbar;
+    });
+  }
+
+  void _confirmExitExam() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: const [
+            Icon(Icons.warning_amber_rounded, color: Colors.red, size: 28),
+            SizedBox(width: 8),
+            Text('Chiudi Esame', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          ],
+        ),
+        content: const Text(
+          'Sei sicuro di voler uscire dall\'esame?\n(আপনি কি পরীক্ষা বন্ধ করে বের হতে চান?)',
+          style: TextStyle(fontSize: 14, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Annulla (না)', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.pop(context);
+            },
+            child: const Text('Chiudi (হ্যাঁ, বের হন)', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showQuestionOverviewGrid() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(20.0),
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Riepilogo Domande (১-৩০)',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              const Text('Opzioni / অপশনসমূহ', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              ListTile(
-                leading: const Icon(Icons.chat_bubble_outline_rounded, color: Color(0xFF22C55E)),
-                title: const Text('Live Tutor Chat', style: TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: const Text('টিউটরের সাথে সরাসরি কথা বলুন'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const TutorChatScreen()));
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.translate_rounded, color: Colors.blue),
-                title: const Text('Translate / অনুবাদ', style: TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: const Text('সম্পূর্ণ বাংলা অনুবাদ দেখুন'),
-                onTap: () {
-                  Navigator.pop(context);
-                  showDialog(
-                    context: context,
-                    builder: (context) => FullTranslateDialog(
-                      italianText: currentQuestion.statement,
-                      banglaText: currentQuestion.translation,
-                      imageUrl: currentQuestion.image,
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: List.generate(_questions.length, (i) {
+                  final isAnswered = _questions[i].userSelectedVero != null;
+                  final isCurrent = i == _currentIndex;
+                  return InkWell(
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      setState(() {
+                        _currentIndex = i;
+                        _selectedGroupIndex = i ~/ 10;
+                      });
+                    },
+                    child: Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: isCurrent
+                            ? const Color(0xFFE53935)
+                            : (isAnswered ? const Color(0xFF4CAF50) : (isDark ? Colors.white10 : Colors.grey.shade100)),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isCurrent
+                              ? const Color(0xFFE53935)
+                              : (isAnswered ? const Color(0xFF4CAF50) : Colors.grey.shade300),
+                        ),
+                      ),
+                      child: Center(
+                        child: Text(
+                          '${i + 1}',
+                          style: TextStyle(
+                            color: (isCurrent || isAnswered) ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
                     ),
                   );
-                },
+                }),
               ),
-              ListTile(
-                leading: const Icon(Icons.bookmark_border_rounded, color: Colors.orange),
-                title: const Text('Save Question / সেভ করুন', style: TextStyle(fontWeight: FontWeight.bold)),
-                onTap: () async {
-                  Navigator.pop(context);
-                  final mcq = McqQuestion(
-                    id: int.tryParse(currentQuestion.id) ?? 1,
-                    chapter: currentQuestion.chapter,
-                    chapterName: currentQuestion.chapterName,
-                    italian: currentQuestion.statement,
-                    bangla: currentQuestion.translation,
-                    isVero: currentQuestion.isVero,
-                    image: currentQuestion.image,
-                    audio: currentQuestion.audio,
-                  );
-                  await BookmarkManager.saveQuestion(mcq);
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('প্রশ্নটি সেভ করা হয়েছে')),
-                    );
-                  }
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.edit_note_rounded, color: Colors.purple),
-                title: const Text('Add Note / নোট যোগ করুন', style: TextStyle(fontWeight: FontWeight.bold)),
-                onTap: () {
-                  Navigator.pop(context);
-                  showDialog(
-                    context: context,
-                    builder: (context) => QuestionNoteDialog(
-                      questionId: currentQuestion.id,
-                      initialNote: '',
-                      onSave: (note) {},
-                    ),
-                  );
-                },
-              ),
+              const SizedBox(height: 16),
             ],
           ),
         );
@@ -456,31 +511,347 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
     );
   }
 
+  void _showChapterTheoryDialog(ExamQuestion currentQuestion) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(Icons.menu_book_rounded, color: Color(0xFF0284C7)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                currentQuestion.chapterName,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Capitolo ${currentQuestion.chapter}',
+                style: const TextStyle(fontSize: 13, color: Colors.grey, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                currentQuestion.statement,
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, height: 1.4),
+              ),
+              if (currentQuestion.translation.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    currentQuestion.translation,
+                    style: TextStyle(fontSize: 14, color: Colors.green.shade900, height: 1.3),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Chiudi / বন্ধ করুন', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFloatingOpzioniBar(ExamQuestion currentQuestion, bool isDark) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(
+          color: isDark ? Colors.white12 : Colors.grey.shade300,
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          // 1. Live Tutor Chat Avatar with Red Badge '1'
+          InkWell(
+            onTap: () {
+              setState(() => _showOpzioniToolbar = false);
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const TutorChatScreen()));
+            },
+            borderRadius: BorderRadius.circular(20),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.blue.shade200, width: 1.2),
+                  ),
+                  child: const Center(
+                    child: Icon(Icons.support_agent_rounded, size: 22, color: Color(0xFF1E40AF)),
+                  ),
+                ),
+                Positioned(
+                  right: -2,
+                  top: -2,
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: const BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
+                    child: const Center(
+                      child: Text(
+                        '1',
+                        style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // 2. Translate Icon
+          InkWell(
+            onTap: () {
+              setState(() => _showOpzioniToolbar = false);
+              showDialog(
+                context: context,
+                builder: (context) => FullTranslateDialog(
+                  italianText: currentQuestion.statement,
+                  banglaText: currentQuestion.translation,
+                  imageUrl: currentQuestion.image,
+                  vocabulary: currentQuestion.vocabulary,
+                ),
+              );
+            },
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: Colors.purple.shade50,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Center(
+                child: Icon(Icons.translate_rounded, color: Colors.purple.shade700, size: 20),
+              ),
+            ),
+          ),
+
+          // 3. Bookmark / Save Icon
+          InkWell(
+            onTap: () async {
+              setState(() => _showOpzioniToolbar = false);
+              final mcq = McqQuestion(
+                id: int.tryParse(currentQuestion.id) ?? 1,
+                chapter: currentQuestion.chapter,
+                chapterName: currentQuestion.chapterName,
+                italian: currentQuestion.statement,
+                bangla: currentQuestion.translation,
+                isVero: currentQuestion.isVero,
+                image: currentQuestion.image,
+                audio: currentQuestion.audio,
+              );
+              await BookmarkManager.saveQuestion(mcq);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('প্রশ্নটি সেভ করা হয়েছে')),
+                );
+              }
+            },
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Center(
+                child: Icon(Icons.bookmark_outline_rounded, color: Colors.orange.shade800, size: 20),
+              ),
+            ),
+          ),
+
+          // 4. Note Icon (Sticky notes)
+          InkWell(
+            onTap: () {
+              setState(() => _showOpzioniToolbar = false);
+              showDialog(
+                context: context,
+                builder: (context) => QuestionNoteDialog(
+                  questionId: currentQuestion.id,
+                  initialNote: '',
+                  onSave: (note) {},
+                ),
+              );
+            },
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Center(
+                child: Icon(Icons.note_alt_outlined, color: Colors.blue.shade700, size: 20),
+              ),
+            ),
+          ),
+
+          // 5. Info Book Icon
+          InkWell(
+            onTap: () {
+              setState(() => _showOpzioniToolbar = false);
+              _showChapterTheoryDialog(currentQuestion);
+            },
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: Colors.teal.shade50,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Center(
+                child: Icon(Icons.menu_book_rounded, color: Colors.teal.shade700, size: 20),
+              ),
+            ),
+          ),
+
+          // 6. List / Scheda Question Overview Icon
+          InkWell(
+            onTap: () {
+              setState(() => _showOpzioniToolbar = false);
+              _showQuestionOverviewGrid();
+            },
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: Colors.indigo.shade50,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Center(
+                child: Icon(Icons.format_list_bulleted_rounded, color: Colors.indigo.shade700, size: 20),
+              ),
+            ),
+          ),
+
+          // 7. Chiudi Esame Button
+          InkWell(
+            onTap: () {
+              setState(() => _showOpzioniToolbar = false);
+              _confirmExitExam();
+            },
+            borderRadius: BorderRadius.circular(20),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white10 : Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.cancel_rounded, color: Color(0xFFEF4444), size: 20),
+                  const SizedBox(width: 4),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Chiudi',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          color: isDark ? Colors.white : Colors.black87,
+                          height: 1.0,
+                        ),
+                      ),
+                      Text(
+                        'Esame',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          color: isDark ? Colors.white : Colors.black87,
+                          height: 1.0,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   List<InlineSpan> _buildUnderlinedStatement(ExamQuestion question, bool isDark) {
     return HtmlTextHelper.buildParsedStatementSpans(
       statement: question.statement,
       isDark: isDark,
+      vocabulary: question.vocabulary,
       onTapWord: (rawWord, cleanWord) {
         String? vocabImage;
-        String translation = question.vocabularyHelp[cleanWord] ?? 'ইতালিয়ান প্যাটেন্টে বি সংক্রান্ত শব্দ: $rawWord';
+        String translation = question.vocabularyHelp[cleanWord] ?? '';
 
-        if (question.vocabulary != null) {
+        if (question.vocabulary != null && question.vocabulary!.isNotEmpty) {
           for (var item in question.vocabulary!) {
             if (item is Map) {
               final word = (item['italian'] ?? item['word'] ?? item['italian_word'] ?? '').toString().trim().toLowerCase();
-              if (word == cleanWord.toLowerCase() || word == rawWord.toLowerCase()) {
+              final rawLower = rawWord.toLowerCase().trim();
+              final cleanLower = cleanWord.toLowerCase().trim();
+              if (word.isNotEmpty && (word == cleanLower || word == rawLower || rawLower == word || cleanLower == word)) {
                 final bn = (item['bangla'] ?? item['meaning'] ?? item['bangla_meaning'] ?? item['translation'] ?? '').toString().trim();
                 if (bn.isNotEmpty) {
                   translation = bn;
                 }
-                final img = (item['image'] ?? item['image_path'] ?? item['img'] ?? '').toString().trim();
-                if (img.isNotEmpty) {
+                final img = (item['image'] ?? item['image_path'] ?? item['img'] ?? item['photo'] ?? item['image_url'] ?? '').toString().trim();
+                if (img.isNotEmpty && img.toLowerCase() != 'null' && img.toLowerCase() != 'undefined' && img.toLowerCase() != 'none') {
                   vocabImage = img;
                 }
                 break;
               }
             }
           }
+        }
+
+        if (translation.isEmpty && QuestionDatabase.globalGlossary.containsKey(cleanWord.toLowerCase())) {
+          translation = QuestionDatabase.globalGlossary[cleanWord.toLowerCase()]!;
+        }
+        if (translation.isEmpty && QuestionDatabase.globalGlossary.containsKey(rawWord.toLowerCase())) {
+          translation = QuestionDatabase.globalGlossary[rawWord.toLowerCase()]!;
         }
 
         showDialog(
@@ -500,8 +871,9 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    if (_isLoading || _questions.isEmpty) {
+    if (_isLoading) {
       return Scaffold(
+        backgroundColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
         appBar: AppBar(
           title: const Text('Test', style: TextStyle(fontWeight: FontWeight.bold)),
           centerTitle: true,
@@ -509,8 +881,87 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
           foregroundColor: isDark ? Colors.white : Colors.black87,
           elevation: 0.5,
         ),
-        body: const Center(
-          child: CircularProgressIndicator(color: Color(0xFF4CAF50)),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(color: Color(0xFF4CAF50)),
+              const SizedBox(height: 16),
+              Text(
+                'টেস্ট লোড হচ্ছে...',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white70 : Colors.black54,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_questions.isEmpty) {
+      return Scaffold(
+        backgroundColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+        appBar: AppBar(
+          title: const Text('Test', style: TextStyle(fontWeight: FontWeight.bold)),
+          centerTitle: true,
+          backgroundColor: isDark ? const Color(0xFF121829) : Colors.white,
+          foregroundColor: isDark ? Colors.white : Colors.black87,
+          elevation: 0.5,
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.quiz_outlined, size: 64, color: isDark ? Colors.amber.shade300 : const Color(0xFFEAB308)),
+                const SizedBox(height: 16),
+                Text(
+                  'প্রশ্ন লোড করা যায়নি',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : const Color(0xFF1E293B),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'ইন্টারনেট সংযোগ চেক করুন অথবা পুনরায় চেষ্টা করুন।',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isDark ? Colors.white60 : Colors.black54,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: _initializeQuestions,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('পুনরায় চেষ্টা করুন', style: TextStyle(fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4CAF50),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(
+                    'ফিরে যান',
+                    style: TextStyle(
+                      color: isDark ? Colors.white70 : Colors.black54,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       );
     }
@@ -784,23 +1235,39 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          if (currentQuestion.image != null && currentQuestion.image!.trim().isNotEmpty) ...[
-                            Container(
-                              height: 130,
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                color: isDark ? Colors.white.withOpacity(0.04) : const Color(0xFFF8FAFC),
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(color: Colors.grey.shade200),
-                              ),
-                              child: Image.network(
-                                ApiService.formatImageUrl(currentQuestion.image!),
-                                fit: BoxFit.contain,
-                                errorBuilder: (ctx, err, stack) => const SizedBox.shrink(),
+                          if (currentQuestion.image != null &&
+                              currentQuestion.image!.trim().isNotEmpty &&
+                              currentQuestion.image!.toLowerCase() != 'null' &&
+                              currentQuestion.image!.toLowerCase() != 'undefined') ...[
+                            GestureDetector(
+                              onTap: () => ImageZoomDialog.show(context, currentQuestion.image!),
+                              child: Container(
+                                height: 140,
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(6),
+                                margin: const EdgeInsets.only(bottom: 12),
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: isDark ? Colors.white.withOpacity(0.04) : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Image.network(
+                                  ApiService.formatImageUrl(currentQuestion.image!),
+                                  fit: BoxFit.contain,
+                                  loadingBuilder: (context, child, loadingProgress) {
+                                    if (loadingProgress == null) return child;
+                                    return const Center(
+                                      child: SizedBox(
+                                        width: 24,
+                                        height: 24,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      ),
+                                    );
+                                  },
+                                  errorBuilder: (ctx, err, stack) => const SizedBox.shrink(),
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 14),
                           ],
                           RichText(
                             textAlign: TextAlign.center,
@@ -813,7 +1280,12 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 6),
+
+                // Floating Opzioni Toolbar (Appears right above bottom bar when Opzioni is tapped)
+                if (_showOpzioniToolbar) ...[
+                  _buildFloatingOpzioniBar(currentQuestion, isDark),
+                ],
 
                 // 5. Bottom Light-Green Control Bar (#E8F5E9 Theme matching Web Screenshot)
                 Container(
@@ -834,7 +1306,7 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                       Row(
                         children: [
                           InkWell(
-                            onTap: () => _showOpzioniModal(currentQuestion),
+                            onTap: _toggleOpzioniToolbar,
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [

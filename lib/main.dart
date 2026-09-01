@@ -1,16 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'theme.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/saved_questions_screen.dart';
-import 'screens/tasbih_screen.dart';
-import 'screens/text_analyzer_screen.dart';
-import 'screens/quotes_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/tutorials_screen.dart';
 import 'screens/dictionary_screen.dart';
-import 'screens/quiz_screen.dart';
-import 'screens/scegli_scheda_screen.dart';
-import 'screens/quiz_practice_screen.dart';
 import 'screens/eclass_screen.dart';
 import 'screens/scegli_categoria_screen.dart';
 import 'screens/exam_simulation_screen.dart';
@@ -23,11 +18,12 @@ import 'screens/social_screen.dart';
 import 'screens/translation_screen.dart';
 import 'screens/app_preloader_dialog.dart';
 import 'screens/qr_scanner_dialog.dart';
+import 'screens/app_navigation_drawer.dart';
 import 'services/api_service.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  await ApiService.initServerConfig();
+  ApiService.initServerConfig(); // Run in background without blocking initial app frame render
   runApp(const MyApp());
 }
 
@@ -126,64 +122,120 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
     });
   }
 
-  // --- Sub-Screen Navigation Helpers with Preloader ---
+  // --- Sub-Screen Navigation Helpers with Preloader & License Enforcement ---
 
-  Future<void> _navigateToWithLoader(Widget targetScreen, {String title = 'পেজ লোড হচ্ছে...'}) async {
+  Future<void> _navigateToWithLoader(Widget targetScreen, {String title = 'পেজ লোড হচ্ছে...', bool isProtected = true}) async {
+    if (isProtected) {
+      final prefs = await SharedPreferences.getInstance();
+      final bool isActiveCached = prefs.getBool('app_client_is_active') ?? true;
+      final phone = prefs.getString('app_client_phone');
+      final sessionId = prefs.getString('app_client_session_id');
+
+      // Refresh license status in background without blocking screen transition
+      ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId).then((currentStatus) {
+        final bool active = (currentStatus == 'active');
+        prefs.setBool('app_client_is_active', active);
+      }).catchError((_) {});
+
+      if (!isActiveCached) {
+        // If explicitly cached as inactive, verify before opening
+        final currentStatus = await ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId);
+        final bool active = (currentStatus == 'active');
+        await prefs.setBool('app_client_is_active', active);
+        if (!active) {
+          if (mounted) _showLicenseRequiredDialog();
+          return;
+        }
+      }
+    }
+
+    if (!mounted) return;
+
+    // Instant, seamless navigation in <100ms
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => targetScreen),
+    );
+  }
+
+  void _showLicenseRequiredDialog() {
     showDialog(
       context: context,
-      barrierDismissible: false,
-      builder: (context) => AppPreloaderDialog(message: title),
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.lock_rounded, color: Colors.amber, size: 28),
+            SizedBox(width: 10),
+            Text('লাইসেন্স অ্যাক্টিভেশন', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text(
+          'Please activate your license to access this feature.\n(এই ফিচারটি ব্যবহার করতে অনুগ্রহ করে আপনার লাইসেন্স এক্টিভ করুন।)',
+          style: TextStyle(fontSize: 13.5, height: 1.45, color: Colors.black87),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('বাতিল', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              _navigateToTutorChat();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2563EB),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            ),
+            icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+            label: const Text('Chat with Admin', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
     );
-
-    await Future.delayed(const Duration(milliseconds: 180));
-
-    if (mounted) {
-      Navigator.pop(context);
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => targetScreen),
-      );
-    }
   }
 
   void _navigateToTutorials() {
-    _navigateToWithLoader(const TutorialsScreen(), title: 'LEZIONI (ক্লাস) লোড হচ্ছে...');
+    _navigateToWithLoader(const TutorialsScreen(), title: 'LEZIONI (ক্লাস) লোড হচ্ছে...', isProtected: true);
   }
 
   void _navigateToTasbih() {
-    _navigateToWithLoader(const ExamSimulationScreen(), title: 'TEST (প্র্যাকটিস টেস্ট) লোড হচ্ছে...');
+    _navigateToWithLoader(const ExamSimulationScreen(), title: 'TEST (প্র্যাকটিস টেস্ট) লোড হচ্ছে...', isProtected: true);
   }
 
   void _navigateToQuotes() {
-    _navigateToWithLoader(const ScegliCategoriaScreen(), title: 'ARGOMENTI (টপিকস) লোড হচ্ছে...');
+    _navigateToWithLoader(const ScegliCategoriaScreen(), title: 'ARGOMENTI (টপিকস) লোড হচ্ছে...', isProtected: true);
   }
 
   void _navigateToManuale() {
-    _navigateToWithLoader(const ManualeScreen(), title: 'MANUALE (ম্যানুয়াল থিওরি) লোড হচ্ছে...');
+    _navigateToWithLoader(const ManualeScreen(), title: 'MANUALE (ম্যানুয়াল থিওরি) লোড হচ্ছে...', isProtected: true);
   }
 
   void _navigateToSocial() {
-    _navigateToWithLoader(const SocialScreen(), title: 'PATENTE SOCIAL (কমিউনিটি) লোড হচ্ছে...');
+    _navigateToWithLoader(const SocialScreen(), title: 'PATENTE SOCIAL (কমিউনিটি) লোড হচ্ছে...', isProtected: true);
   }
 
   void _navigateToTranslation() {
-    _navigateToWithLoader(const TranslationScreen(), title: 'TRANSLATION (অনুবাদ) লোড হচ্ছে...');
+    _navigateToWithLoader(const TranslationScreen(), title: 'TRANSLATION (অনুবাদ) লোড হচ্ছে...', isProtected: true);
   }
 
   void _navigateToTextAnalyzer() {
-    _navigateToWithLoader(const EClassScreen(), title: 'E-CLASS লোড হচ্ছে...');
+    _navigateToWithLoader(const EClassScreen(), title: 'E-CLASS লোড হচ্ছে...', isProtected: true);
   }
 
   void _navigateToQuiz() {
-    _navigateToWithLoader(const ExamSimulationScreen(), title: 'SCHEDA ESAME লোড হচ্ছে...');
+    _navigateToWithLoader(const ExamSimulationScreen(), title: 'SCHEDA ESAME লোড হচ্ছে...', isProtected: true);
   }
 
   void _navigateToDictionary() {
-    _navigateToWithLoader(const DictionaryScreen(), title: 'ডিকশনারি (Dictionary) লোড হচ্ছে...');
+    _navigateToWithLoader(const DictionaryScreen(), title: 'ডিকশনারি (Dictionary) লোড হচ্ছে...', isProtected: false);
   }
 
   void _navigateToSavedQuestions() {
-    _navigateToWithLoader(const SavedQuestionsScreen(), title: 'সেভ করা প্রশ্ন (Saved) লোড হচ্ছে...');
+    _navigateToWithLoader(const SavedQuestionsScreen(), title: 'সেভ করা প্রশ্ন (Saved) লোড হচ্ছে...', isProtected: true);
   }
 
   void _navigateToProfile() {
@@ -202,23 +254,24 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
         ),
       ),
       title: 'প্রোফাইল সেটিংস লোড হচ্ছে...',
+      isProtected: false,
     );
   }
 
   void _navigateToSfida() {
-    _navigateToWithLoader(const SfidaScreen(), title: 'SFIDA (চ্যালেঞ্জ) লোড হচ্ছে...');
+    _navigateToWithLoader(const SfidaScreen(), title: 'SFIDA (চ্যালেঞ্জ) লোড হচ্ছে...', isProtected: true);
   }
 
   void _navigateToCartelli() {
-    _navigateToWithLoader(const CartelliScreen(), title: 'ট্রাফিক সাইন (Cartelli) লোড হচ্ছে...');
+    _navigateToWithLoader(const CartelliScreen(), title: 'ট্রাফিক সাইন (Cartelli) লোড হচ্ছে...', isProtected: true);
   }
 
   void _navigateToTutorChat() {
-    _navigateToWithLoader(const TutorChatScreen(), title: 'সোশ্যাল মিডিয়া ও টিউটর লোড হচ্ছে...');
+    _navigateToWithLoader(const TutorChatScreen(), title: 'সোশ্যাল মিডিয়া ও টিউটর লোড হচ্ছে...', isProtected: false);
   }
 
   void _navigateToStore() {
-    _navigateToWithLoader(const StoreScreen(), title: 'প্রিমিয়াম স্টোর লোড হচ্ছে...');
+    _navigateToWithLoader(const StoreScreen(), title: 'প্রিমিয়াম স্টোর লোড হচ্ছে...', isProtected: false);
   }
 
   // --- Simulated Utility Workflows ---
@@ -383,53 +436,8 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
         ],
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          // Button 1: Stats Icon (from screenshot)
-          InkWell(
-            onTap: _navigateToStore,
-            borderRadius: BorderRadius.circular(12),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
-              child: SizedBox(
-                width: 28,
-                height: 28,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Container(
-                      width: 5,
-                      height: 10,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF42A5F5), // Blue
-                        borderRadius: BorderRadius.circular(1.5),
-                      ),
-                    ),
-                    const SizedBox(width: 3),
-                    Container(
-                      width: 5,
-                      height: 20,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFB300), // Amber
-                        borderRadius: BorderRadius.circular(1.5),
-                      ),
-                    ),
-                    const SizedBox(width: 3),
-                    Container(
-                      width: 5,
-                      height: 15,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFF5252), // Red
-                        borderRadius: BorderRadius.circular(1.5),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
           // Button 2: Theme Toggle (Dark circle with moon/sun from screenshot)
           InkWell(
             onTap: () => widget.onThemeChanged(!widget.isDark),
@@ -528,35 +536,41 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   }
 
   void _navigateToCorrectQuestions() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const SavedQuestionsScreen(
-          title: 'Correct MCQs',
-          mode: McqScreenMode.correct,
-        ),
+    _navigateToWithLoader(
+      const SavedQuestionsScreen(
+        title: 'Correct MCQs',
+        mode: McqScreenMode.correct,
       ),
+      title: 'সঠিক উত্তরগুলো (Correct) লোড হচ্ছে...',
+      isProtected: true,
     );
   }
 
   void _navigateToWrongQuestions() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const SavedQuestionsScreen(
-          title: 'Wrong MCQs',
-          mode: McqScreenMode.wrong,
-        ),
+    _navigateToWithLoader(
+      const SavedQuestionsScreen(
+        title: 'Wrong MCQs',
+        mode: McqScreenMode.wrong,
       ),
+      title: 'ভুল উত্তরগুলো (Wrong) লোড হচ্ছে...',
+      isProtected: true,
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final double bottomInset = MediaQuery.of(context).padding.bottom;
+    final double floatingBottomOffset = bottomInset > 0 ? (bottomInset + 18) : 32;
 
     return Scaffold(
       appBar: null, // Hide AppBar on home screen to let curved header go all the way up
+      drawer: AppNavigationDrawer(
+        onTapTutorials: _navigateToTutorials,
+        onTapDictionary: _navigateToDictionary,
+        onTapCartelli: _navigateToCartelli,
+        onTapProfile: _navigateToProfile,
+      ),
       body: Stack(
         children: [
           // Main Home View
@@ -583,9 +597,9 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
 
           // Floating Action Navigation Bar
           Positioned(
-            bottom: 24,
-            left: 24,
-            right: 24,
+            bottom: floatingBottomOffset,
+            left: 20,
+            right: 20,
             child: _buildFloatingBottomBar(isDark),
           ),
         ],

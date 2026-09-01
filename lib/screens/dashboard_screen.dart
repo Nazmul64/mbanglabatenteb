@@ -65,6 +65,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _isLoadingCards = false;
       });
     }
+    // Silently pre-warm Argomenti and Cartelli caches for instantaneous 100% fast response
+    ApiService.fetchChapters().catchError((_) => <dynamic>[]);
+    ApiService.fetchCartelliChapters().catchError((_) => <dynamic>[]);
   }
 
   VoidCallback _getCallbackForScreenKey(String screenKey) {
@@ -156,83 +159,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ],
                 ),
                 child: SafeArea(
+                  top: true,
                   bottom: false,
+                  left: true,
+                  right: true,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
-                    child: Stack(
-                      alignment: Alignment.center,
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(6),
-                              child: Image.asset(
-                                'assets/images/logo.png',
-                                width: 28,
-                                height: 28,
-                                fit: BoxFit.cover,
+                        // Left: Navigation Drawer Hamburger Button
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () {
+                              Scaffold.of(context).openDrawer();
+                            },
+                            borderRadius: BorderRadius.circular(20),
+                            child: Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.white24,
+                                border: Border.all(color: Colors.white.withOpacity(0.6), width: 1.2),
                               ),
+                              child: const Icon(Icons.menu_rounded, color: Colors.white, size: 22),
                             ),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'M Bangla Patente B',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
-                        Positioned(
-                          right: 0,
+                        // Center: App Title
+                        const Expanded(
+                          child: Text(
+                            'M Bangla Patente B',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        // Right: Profile Button
+                        Material(
+                          color: Colors.transparent,
                           child: InkWell(
                             onTap: widget.onTapProfile,
                             borderRadius: BorderRadius.circular(20),
-                            child: Stack(
-                              clipBehavior: Clip.none,
-                              children: [
-                                Container(
-                                  width: 38,
-                                  height: 38,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Colors.white24,
-                                    border: Border.all(color: Colors.white.withOpacity(0.6), width: 1.2),
-                                  ),
-                                  child: const CircleAvatar(
-                                    backgroundColor: Colors.transparent,
-                                    child: Icon(Icons.person_rounded, color: Colors.white, size: 22),
-                                  ),
-                                ),
-                                Positioned(
-                                  top: -2,
-                                  right: -2,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(4),
-                                    decoration: const BoxDecoration(
-                                      color: Colors.red,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    constraints: const BoxConstraints(
-                                      minWidth: 16,
-                                      minHeight: 16,
-                                    ),
-                                    child: const Center(
-                                      child: Text(
-                                        '1',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 9,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
+                            child: Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.white24,
+                                border: Border.all(color: Colors.white.withOpacity(0.6), width: 1.2),
+                              ),
+                              child: const Center(
+                                child: Icon(Icons.person_rounded, color: Colors.white, size: 22),
+                              ),
                             ),
                           ),
                         ),
@@ -247,7 +234,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
               // 5. Dynamic Grid of Services from API
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 140),
                 child: _buildDynamicCardsGrid(isDark),
               ),
             ],

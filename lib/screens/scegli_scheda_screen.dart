@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'triangle_pattern_painter.dart';
 import 'quiz_practice_screen.dart';
-import 'instant_correction_dialog.dart';
+import 'exam_simulation_screen.dart';
 import '../models/mcq_question.dart';
 import '../services/api_service.dart';
 
 class SubTopic {
   final int pageId;
   final String title;
+  String? image;
   final int total;
   int correct;
   int errors;
@@ -17,6 +18,7 @@ class SubTopic {
   SubTopic({
     this.pageId = 1,
     required this.title,
+    this.image,
     required this.total,
     this.correct = 0,
     this.errors = 0,
@@ -74,8 +76,8 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
         _categories = apiChapters.map((ch) {
           final id = ch['id'] is int ? ch['id'] as int : int.tryParse('${ch['id']}') ?? 1;
           final chapNum = ch['chapter_number'] ?? id;
-          final name = (ch['name'] ?? ch['title'] ?? 'Capitolo $id').toString().toUpperCase();
-          final key = '$chapNum) $name';
+          final name = (ch['name'] ?? ch['title'] ?? 'Capitolo $id').toString();
+          final key = 'Capitolo $chapNum) $name';
           _chapterIdMap[key] = id;
           return key;
         }).toList();
@@ -87,8 +89,8 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
           );
           final id = found['id'] is int ? found['id'] as int : int.tryParse('${found['id']}') ?? 1;
           final chapNum = found['chapter_number'] ?? id;
-          final name = (found['name'] ?? found['title'] ?? 'Capitolo $id').toString().toUpperCase();
-          _selectedCategory = '$chapNum) $name';
+          final name = (found['name'] ?? found['title'] ?? 'Capitolo $id').toString();
+          _selectedCategory = 'Capitolo $chapNum) $name';
           _chapterIdMap[_selectedCategory] = id;
         } else {
           _selectedCategory = _categories.first;
@@ -119,6 +121,7 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
 
     setState(() {
       _isLoadingPages = true;
+      _isSelectActive = false;
     });
 
     final apiPages = await ApiService.fetchChapterPages(chapterId);
@@ -128,12 +131,15 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
         for (var i = 0; i < apiPages.length; i++) {
           final p = apiPages[i];
           final pId = p['id'] is int ? p['id'] as int : int.tryParse('${p['id']}') ?? (i + 1);
-          final titleStr = (p['title'] ?? 'Pagina ${i + 1}').toString();
+          final titleStr = (p['title'] ?? p['name'] ?? 'Pagina ${i + 1}').toString();
           final total = p['questions_count'] ?? p['question_count'] ?? p['totale'] ?? 0;
           final pageNum = p['sort_order'] ?? p['page_number'] ?? (i + 1);
+          final imgPath = (p['image'] ?? p['image_path'] ?? p['cover_image'] ?? p['image_url'] ?? p['img'] ?? p['photo'] ?? p['page_image'] ?? p['thumbnail'] ?? '').toString();
+          final fullImgUrl = ApiService.formatImageUrl(imgPath);
           loadedList.add(SubTopic(
             pageId: pId,
             title: '$pageNum) $titleStr',
+            image: fullImgUrl.isNotEmpty ? fullImgUrl : null,
             total: total > 0 ? total : 0,
             correct: p['corrette'] ?? 0,
             errors: p['errori'] ?? 0,
@@ -144,6 +150,37 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
         _subtopicsCache[_selectedCategory] = loadedList;
         _isLoadingPages = false;
       });
+
+      // Background fetch missing page images if not returned in list
+      _fetchMissingImagesForSubtopics(loadedList, _selectedCategory);
+    }
+  }
+
+  Future<void> _fetchMissingImagesForSubtopics(List<SubTopic> subtopics, String categoryKey) async {
+    for (final sub in subtopics) {
+      if (sub.image == null || sub.image!.trim().isEmpty || sub.image!.trim().toLowerCase() == 'null') {
+        try {
+          final details = await ApiService.fetchPageDetails(sub.pageId);
+          if (details != null && mounted) {
+            String? img = (details['image'] ?? details['image_path'] ?? details['cover_image'] ?? details['image_url'] ?? details['img'] ?? details['photo'] ?? details['page_image'])?.toString();
+            // Fallback to first question's image if page image is not directly defined
+            if ((img == null || img.trim().isEmpty || img.trim().toLowerCase() == 'null') && details['questions'] is List && (details['questions'] as List).isNotEmpty) {
+              final firstQ = details['questions'][0];
+              if (firstQ is Map) {
+                img = (firstQ['image'] ?? firstQ['image_path'] ?? firstQ['img'])?.toString();
+              }
+            }
+            if (img != null && img.trim().isNotEmpty && img.trim().toLowerCase() != 'null') {
+              final fullUrl = ApiService.formatImageUrl(img);
+              if (fullUrl.isNotEmpty && mounted) {
+                setState(() {
+                  sub.image = fullUrl;
+                });
+              }
+            }
+          }
+        } catch (_) {}
+      }
     }
   }
 
@@ -165,9 +202,7 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
   void _onSelectButtonPressed() {
     setState(() {
       _isSelectActive = true;
-      for (var sub in _getCurrentSubtopics()) {
-        sub.isSelected = true;
-      }
+      // Multi-select mode activated - cards remain unselected until individual tap
     });
   }
 
@@ -194,12 +229,18 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
     });
 
     List<McqQuestion> allQuestions = [];
-    for (var sub in selectedSubs) {
-      final pageDetails = await ApiService.fetchPageDetails(sub.pageId);
-      if (pageDetails != null && pageDetails['questions'] is List) {
-        final qList = (pageDetails['questions'] as List).map((q) => McqQuestion.fromJson(q)).toList();
-        allQuestions.addAll(qList);
+    try {
+      final detailsList = await Future.wait(
+        selectedSubs.map((sub) => ApiService.fetchPageDetails(sub.pageId)),
+      );
+      for (final pageDetails in detailsList) {
+        if (pageDetails != null && pageDetails['questions'] is List) {
+          final qList = (pageDetails['questions'] as List).map((q) => McqQuestion.fromJson(q)).toList();
+          allQuestions.addAll(qList);
+        }
       }
+    } catch (e) {
+      debugPrint('Error loading subtopic quiz questions: $e');
     }
 
     if (mounted) {
@@ -209,25 +250,68 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
 
       if (allQuestions.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('সিলেক্ট করা পেজে কোনো প্রশ্ন পাওয়া যায়নি')),
+          const SnackBar(content: Text('সিলেক্ট করা অংশে কোনো এমসিকিউ প্রশ্ন পাওয়া যায়নি')),
         );
         return;
       }
 
-      showDialog(
-        context: context,
-        builder: (context) => InstantCorrectionDialog(
-          onSelection: (instantCorrection) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => QuizPracticeScreen(
-                  questions: allQuestions,
-                  quizTitle: _selectedCategory,
-                ),
-              ),
-            );
-          },
+      final title = selectedSubs.length == 1
+          ? '$_selectedCategory - ${selectedSubs.first.title}'
+          : '$_selectedCategory - Schede Selezionate (${selectedSubs.length})';
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ExamSimulationScreen(
+            customQuestions: allQuestions,
+            examTitle: title,
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _startPageQuiz(SubTopic sub) async {
+    setState(() {
+      _isLoadingPages = true;
+    });
+
+    List<McqQuestion> pageQuestions = [];
+    String? pageImg = sub.image;
+    String? pageImgPos;
+    final pageDetails = await ApiService.fetchPageDetails(sub.pageId);
+    if (pageDetails != null) {
+      pageImg = (pageDetails['image'] ?? pageDetails['image_path'] ?? pageDetails['cover_image'] ?? sub.image)?.toString();
+      pageImgPos = (pageDetails['image_position'] ?? pageDetails['position'] ?? pageDetails['img_position'] ?? pageDetails['image_location'] ?? 'left')?.toString();
+      if (pageDetails['questions'] is List) {
+        pageQuestions = (pageDetails['questions'] as List).map((q) => McqQuestion.fromJson(q)).toList();
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _isLoadingPages = false;
+      });
+
+      if (pageQuestions.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('সিলেক্ট করা অংশে কোনো এমসিকিউ প্রশ্ন পাওয়া যায়নি')),
+        );
+        return;
+      }
+
+      final chapterId = _chapterIdMap[_selectedCategory] ?? widget.initialChapterId ?? 1;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => QuizPracticeScreen(
+            initialChapterId: chapterId,
+            initialPage: sub.pageId,
+            questions: pageQuestions,
+            quizTitle: '$_selectedCategory - ${sub.title}',
+            initialPageImage: pageImg,
+            initialPageImagePosition: pageImgPos,
+          ),
         ),
       );
     }
@@ -277,7 +361,6 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
       ),
       body: Stack(
         children: [
-          // Background triangles pattern
           Positioned.fill(
             child: CustomPaint(
               painter: TrianglePatternPainter(
@@ -293,7 +376,6 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Dropdown selection category card
                   Card(
                     margin: EdgeInsets.zero,
                     elevation: 0,
@@ -338,20 +420,19 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-
-                  // Three buttons: Unselect All, Select, Select All
                   Row(
                     children: [
                       Expanded(
                         child: ElevatedButton(
                           onPressed: _unselectAll,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: isDark ? Colors.white10 : Colors.grey.shade200,
+                            backgroundColor: isDark ? Colors.white10 : Colors.grey.shade100,
                             foregroundColor: isDark ? Colors.white70 : Colors.black87,
                             elevation: 0,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                            padding: const EdgeInsets.symmetric(vertical: 8),
                           ),
-                          child: const Text('Unselect All', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          child: const Text('Unselect All', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                         ),
                       ),
                       if (!_isSelectActive) ...[
@@ -360,12 +441,13 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
                           child: ElevatedButton(
                             onPressed: _onSelectButtonPressed,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: isDark ? Colors.white10 : Colors.grey.shade200,
+                              backgroundColor: isDark ? Colors.white10 : Colors.grey.shade100,
                               foregroundColor: isDark ? Colors.white70 : Colors.black87,
                               elevation: 0,
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                              padding: const EdgeInsets.symmetric(vertical: 8),
                             ),
-                            child: const Text('Select', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            child: const Text('Select', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                           ),
                         ),
                       ],
@@ -374,20 +456,18 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
                         child: ElevatedButton(
                           onPressed: _selectAll,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: isDark ? Colors.white10 : Colors.grey.shade200,
-                            foregroundColor: const Color(0xFF22C55E),
+                            backgroundColor: isDark ? Colors.white10 : Colors.grey.shade100,
+                            foregroundColor: isDark ? Colors.white70 : Colors.black87,
                             elevation: 0,
-                            side: const BorderSide(color: Color(0xFF22C55E), width: 1.5),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                            padding: const EdgeInsets.symmetric(vertical: 8),
                           ),
-                          child: const Text('Select All', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          child: const Text('Select All', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 16),
-
-                  // Subtopic Progress Card list
                   Expanded(
                     child: _isLoadingPages
                         ? const Center(child: CircularProgressIndicator())
@@ -435,44 +515,21 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
         ),
       ),
       child: InkWell(
-        onTap: () async {
-          if (_isSelectActive || _getCurrentSubtopics().any((s) => s.isSelected)) {
+        onTap: () {
+          if (_isSelectActive) {
             setState(() {
               sub.isSelected = !sub.isSelected;
-              _isSelectActive = _getCurrentSubtopics().any((s) => s.isSelected);
             });
-            return;
+          } else {
+            _startPageQuiz(sub);
           }
-          setState(() {
-            _isLoadingPages = true;
-          });
-          final pageDetails = await ApiService.fetchPageDetails(sub.pageId);
-          List<McqQuestion> questions = [];
-          if (pageDetails != null && pageDetails['questions'] is List) {
-            questions = (pageDetails['questions'] as List).map((q) => McqQuestion.fromJson(q)).toList();
-          }
-
-          if (mounted) {
+        },
+        onLongPress: () {
+          if (!_isSelectActive) {
             setState(() {
-              _isLoadingPages = false;
+              _isSelectActive = true;
+              sub.isSelected = true;
             });
-
-            if (questions.isEmpty) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('এই পেজে কোনো MCQ প্রশ্ন যুক্ত করা হয়নি')),
-              );
-              return;
-            }
-
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => QuizPracticeScreen(
-                  questions: questions,
-                  quizTitle: sub.title,
-                ),
-              ),
-            );
           }
         },
         borderRadius: BorderRadius.circular(24),
@@ -481,9 +538,8 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Subtopic Title with selection checkmark / chevron
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
                     child: Text(
@@ -495,32 +551,38 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        sub.isSelected = !sub.isSelected;
-                        _isSelectActive = _getCurrentSubtopics().any((s) => s.isSelected);
-                      });
+                ],
+              ),
+              if (sub.image != null && sub.image!.trim().isNotEmpty && sub.image!.trim().toLowerCase() != 'null') ...[
+                const SizedBox(height: 12),
+                Container(
+                  height: 140,
+                  width: double.infinity,
+                  alignment: Alignment.center,
+                  child: Image.network(
+                    ApiService.formatImageUrl(sub.image),
+                    fit: BoxFit.contain,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return const Center(
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      );
                     },
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: sub.isSelected ? Colors.green.withOpacity(0.15) : Colors.blue.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
+                    errorBuilder: (ctx, err, stack) => const Center(
                       child: Icon(
-                        sub.isSelected ? Icons.check_circle_rounded : Icons.chevron_right_rounded,
-                        size: 20,
-                        color: sub.isSelected ? Colors.green : Colors.blue,
+                        Icons.image_outlined,
+                        size: 40,
+                        color: Colors.grey,
                       ),
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
               const SizedBox(height: 12),
-
-              // Stats and progress bar
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -534,7 +596,6 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  // Multi-segment progress bar (green, red, amber, background)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
@@ -586,4 +647,3 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
     );
   }
 }
-

@@ -15,15 +15,15 @@ class WebViewScreen extends StatefulWidget {
 
   /// Helper to sanitize local URLs so Android devices/emulators can access local server
   static String sanitizeUrl(String rawUrl) {
+    final baseOrigin = ApiService.baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
     var cleanUrl = rawUrl.trim();
-    if (cleanUrl.isEmpty) return 'http://mbanglapatenteb.com';
+    if (cleanUrl.isEmpty) return baseOrigin;
 
     if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
-      cleanUrl = 'http://$cleanUrl';
+      cleanUrl = 'http://';
     }
 
     // Resolve localhost/127.0.0.1 for mobile app accessibility
-    final baseOrigin = ApiService.baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
     cleanUrl = cleanUrl
         .replaceAll('http://127.0.0.1:8000', baseOrigin)
         .replaceAll('http://localhost:8000', baseOrigin)
@@ -119,7 +119,9 @@ class _WebViewScreenState extends State<WebViewScreen> {
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             Text(
-              _finalUrl,
+              _finalUrl.contains('mbanglapatenteb.com') || _finalUrl.contains('mbanglabatenteb.com')
+                  ? 'https://mbanglapatenteb.com/'
+                  : _finalUrl,
               style: TextStyle(
                 fontSize: 11,
                 color: isDark ? Colors.grey[400] : Colors.grey[600],

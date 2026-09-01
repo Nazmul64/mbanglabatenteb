@@ -4,10 +4,13 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../models/bookmark_manager.dart';
 import '../models/mcq_question.dart';
+import '../models/question_database.dart';
 import '../services/api_service.dart';
 import '../services/html_text_helper.dart';
 import 'triangle_pattern_painter.dart';
+import 'google_translate_dialog.dart';
 import 'full_translate_dialog.dart';
+import 'image_zoom_dialog.dart';
 import 'question_note_dialog.dart';
 import 'instant_correction_dialog.dart';
 import 'exam_simulation_screen.dart';
@@ -110,31 +113,33 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
       if (widget.mode == McqScreenMode.wrong) {
         final apiData = await ApiService.fetchWrongMcqs();
         if (apiData.isNotEmpty) {
-          loaded = apiData.map((json) => McqQuestion.fromJson(json)).toList();
-        } else {
-          final saved = await BookmarkManager.getSavedQuestions();
-          loaded = saved.where((q) => !q.isVero).toList();
+          loaded = apiData.map((json) {
+            final raw = (json is Map && json.containsKey('question') && json['question'] != null)
+                ? json['question']
+                : (json is Map && json.containsKey('cartelloQuestion') && json['cartelloQuestion'] != null
+                    ? json['cartelloQuestion']
+                    : (json is Map && json.containsKey('cartello_question') && json['cartello_question'] != null
+                        ? json['cartello_question']
+                        : json));
+            return McqQuestion.fromJson(raw is Map<String, dynamic> ? raw : (json is Map<String, dynamic> ? json : {}));
+          }).where((q) => q.italian.isNotEmpty).toList();
         }
       } else if (widget.mode == McqScreenMode.correct) {
         final apiData = await ApiService.fetchCorrectMcqs();
         if (apiData.isNotEmpty) {
-          loaded = apiData.map((json) => McqQuestion.fromJson(json)).toList();
-        } else {
-          final saved = await BookmarkManager.getSavedQuestions();
-          loaded = saved.where((q) => q.isVero).toList();
-        }
-      } else {
-        final apiData = await ApiService.fetchSavedMcqs();
-        if (apiData.isNotEmpty) {
           loaded = apiData.map((json) {
             final raw = (json is Map && json.containsKey('question') && json['question'] != null)
                 ? json['question']
-                : json;
-            return McqQuestion.fromJson(raw);
-          }).toList();
-        } else {
-          loaded = await BookmarkManager.getSavedQuestions();
+                : (json is Map && json.containsKey('cartelloQuestion') && json['cartelloQuestion'] != null
+                    ? json['cartelloQuestion']
+                    : (json is Map && json.containsKey('cartello_question') && json['cartello_question'] != null
+                        ? json['cartello_question']
+                        : json));
+            return McqQuestion.fromJson(raw is Map<String, dynamic> ? raw : (json is Map<String, dynamic> ? json : {}));
+          }).where((q) => q.italian.isNotEmpty).toList();
         }
+      } else {
+        loaded = await BookmarkManager.getSavedQuestions();
       }
     } catch (e) {
       debugPrint('Error loading questions in SavedQuestionsScreen: $e');
@@ -145,6 +150,13 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
         _quizzes = loaded.asMap().entries.map((entry) {
           final idx = entry.key;
           final q = entry.value;
+          final int gCount = widget.mode == McqScreenMode.wrong
+              ? (q.giustoCount > 0 ? q.giustoCount : 0)
+              : (widget.mode == McqScreenMode.correct ? (q.giustoCount > 0 ? q.giustoCount : 1) : q.giustoCount);
+          final int sCount = widget.mode == McqScreenMode.wrong
+              ? (q.sbagliatoCount > 0 ? q.sbagliatoCount : 1)
+              : (widget.mode == McqScreenMode.correct ? (q.sbagliatoCount > 0 ? q.sbagliatoCount : 0) : q.sbagliatoCount);
+
           return PatenteQuizItem(
             rawId: q.id,
             id: '${idx + 1}',
@@ -153,8 +165,12 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
             isVero: q.isVero,
             audioNote: 'অডিও ব্যাখ্যা সহ বিস্তারিত প্রস্তুত পড়ুন',
             image: q.image,
+            imagePosition: q.imagePosition,
             audioUrl: q.audio,
-            isSaved: true,
+            vocabulary: q.vocabulary,
+            isSaved: widget.mode == McqScreenMode.saved,
+            giustoCount: gCount,
+            sbagliatoCount: sCount,
           );
         }).toList();
         _isLoading = false;
@@ -180,18 +196,9 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
     });
   }
 
-  void _toggleSelectMode() {
+  void _activateSelectMode() {
     setState(() {
-      _isSelectActive = !_isSelectActive;
-      if (_isSelectActive) {
-        if (_quizzes.isNotEmpty && !_quizzes.any((q) => q.isSelected)) {
-          _quizzes.first.isSelected = true;
-        }
-      } else {
-        for (var quiz in _quizzes) {
-          quiz.isSelected = false;
-        }
-      }
+      _isSelectActive = true;
     });
   }
 
@@ -298,8 +305,11 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
     String? bannerImg;
     for (var q in _quizzes) {
       if (q.image != null && q.image!.trim().isNotEmpty) {
-        bannerImg = q.image;
-        break;
+        final pos = (q.imagePosition ?? '').toLowerCase();
+        if (pos.contains('both') || pos.contains('top') || pos.contains('up') || pos.contains('banner') || pos.contains('header') || pos.contains('sopra') || pos.contains('উভয়')) {
+          bannerImg = q.image;
+          break;
+        }
       }
     }
 
@@ -312,49 +322,45 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
             children: [
               Expanded(
                 child: ElevatedButton(
-                  onPressed: _toggleSelectMode,
+                  onPressed: _unselectAll,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _isSelectActive ? const Color(0xFFEFFDF4) : (isDark ? Colors.white10 : Colors.grey.shade100),
-                    foregroundColor: _isSelectActive ? const Color(0xFF16A34A) : (isDark ? Colors.white70 : Colors.grey.shade800),
+                    backgroundColor: isDark ? Colors.white10 : Colors.grey.shade100,
+                    foregroundColor: isDark ? Colors.white70 : Colors.black87,
                     elevation: 0,
-                    side: BorderSide(
-                      color: _isSelectActive ? const Color(0xFF22C55E) : Colors.grey.shade300,
-                      width: _isSelectActive ? 1.8 : 1.0,
-                    ),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
                   ),
-                  child: const Text('Select', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  child: const Text('Unselect All', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                 ),
               ),
+              if (!_isSelectActive) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _activateSelectMode,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isDark ? Colors.white10 : Colors.grey.shade100,
+                      foregroundColor: isDark ? Colors.white70 : Colors.black87,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                    child: const Text('Select', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
               const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton(
                   onPressed: _selectAll,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: isDark ? Colors.white10 : Colors.grey.shade100,
-                    foregroundColor: const Color(0xFF22C55E),
+                    foregroundColor: isDark ? Colors.white70 : Colors.black87,
                     elevation: 0,
-                    side: const BorderSide(color: Color(0xFF22C55E), width: 1.5),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
                   ),
-                  child: const Text('Select All', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: _unselectAll,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isDark ? Colors.white10 : Colors.grey.shade100,
-                    foregroundColor: isDark ? Colors.white70 : Colors.grey.shade800,
-                    elevation: 0,
-                    side: BorderSide(color: Colors.grey.shade300),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                  ),
-                  child: const Text('Unselect All', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  child: const Text('Select All', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
@@ -521,13 +527,44 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
       isDark: isDark,
       fontSize: 14.5,
       height: 1.45,
+      vocabulary: quiz.vocabulary,
       onTapWord: (rawWord, cleanWord) {
+        String? vocabImage;
+        String translation = '';
+
+        if (quiz.vocabulary != null) {
+          for (var item in quiz.vocabulary!) {
+            if (item is Map) {
+              final word = (item['italian'] ?? item['word'] ?? item['italian_word'] ?? '').toString().trim().toLowerCase();
+              final rawLower = rawWord.toLowerCase().trim();
+              final cleanLower = cleanWord.toLowerCase().trim();
+              if (word.isNotEmpty && (word == cleanLower || word == rawLower || rawLower == word || cleanLower == word)) {
+                final bn = (item['bangla'] ?? item['meaning'] ?? item['bangla_meaning'] ?? item['translation'] ?? '').toString().trim();
+                if (bn.isNotEmpty) {
+                  translation = bn;
+                }
+                final img = (item['image'] ?? item['image_path'] ?? item['img'] ?? item['photo'] ?? item['image_url'] ?? '').toString().trim();
+                if (img.isNotEmpty && img.toLowerCase() != 'null' && img.toLowerCase() != 'undefined' && img.toLowerCase() != 'none') {
+                  vocabImage = img;
+                }
+                break;
+              }
+            }
+          }
+        }
+
+        if (translation.isEmpty && QuestionDatabase.globalGlossary.containsKey(cleanWord.toLowerCase())) {
+          translation = QuestionDatabase.globalGlossary[cleanWord.toLowerCase()]!;
+        } else if (translation.isEmpty && QuestionDatabase.globalGlossary.containsKey(rawWord.toLowerCase())) {
+          translation = QuestionDatabase.globalGlossary[rawWord.toLowerCase()]!;
+        }
+
         showDialog(
           context: context,
-          builder: (context) => FullTranslateDialog(
+          builder: (context) => GoogleTranslateDialog(
             italianText: cleanWord.isNotEmpty ? cleanWord : rawWord,
-            banglaText: quiz.bangla,
-            imageUrl: quiz.image,
+            localTranslation: translation,
+            imageUrl: vocabImage,
           ),
         );
       },
@@ -538,7 +575,30 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
     );
   }
 
+  String? _resolveEffectiveQuizImage(PatenteQuizItem quiz) {
+    if (quiz.image != null &&
+        quiz.image!.trim().isNotEmpty &&
+        quiz.image!.trim().toLowerCase() != 'null' &&
+        quiz.image!.trim().toLowerCase() != 'undefined') {
+      return quiz.image;
+    }
+    if (quiz.vocabulary != null) {
+      for (var v in quiz.vocabulary!) {
+        if (v is Map) {
+          final img = (v['image'] ?? v['image_path'] ?? v['img'] ?? v['photo'] ?? v['image_url'])?.toString().trim();
+          if (img != null && img.isNotEmpty && img.toLowerCase() != 'null' && img.toLowerCase() != 'undefined') {
+            return img;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   Widget _buildQuizCard(PatenteQuizItem quiz, bool isDark) {
+    final effectiveImg = _resolveEffectiveQuizImage(quiz);
+    final imgUrl = ApiService.formatImageUrl(effectiveImg);
+
     return Container(
       decoration: BoxDecoration(
         color: quiz.isSelected
@@ -548,8 +608,16 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
         border: Border.all(
           color: quiz.isSelected
               ? const Color(0xFF22C55E)
-              : (isDark ? Colors.white10 : const Color(0xFFE2E8F0)),
-          width: quiz.isSelected ? 2.0 : 1.5,
+              : (widget.mode == McqScreenMode.wrong
+                  ? const Color(0xFFEF4444)
+                  : (widget.mode == McqScreenMode.correct
+                      ? const Color(0xFF22C55E)
+                      : (quiz.sbagliatoCount > 0 && quiz.giustoCount == 0
+                          ? const Color(0xFFEF4444)
+                          : (quiz.giustoCount > 0 && quiz.sbagliatoCount == 0
+                              ? const Color(0xFF22C55E)
+                              : (isDark ? Colors.white10 : const Color(0xFFE2E8F0)))))),
+          width: (quiz.isSelected || widget.mode == McqScreenMode.wrong || widget.mode == McqScreenMode.correct || quiz.sbagliatoCount > 0 || quiz.giustoCount > 0) ? 2.0 : 1.5,
         ),
         boxShadow: [
           BoxShadow(
@@ -669,15 +737,25 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (quiz.image != null && quiz.image!.trim().isNotEmpty) ...[
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: Image.network(
-                        ApiService.formatImageUrl(quiz.image),
-                        width: 85,
-                        height: 65,
-                        fit: BoxFit.cover,
-                        errorBuilder: (ctx, err, stack) => const SizedBox.shrink(),
+                  if (imgUrl.isNotEmpty) ...[
+                    GestureDetector(
+                      onTap: () => ImageZoomDialog.show(context, effectiveImg),
+                      child: Container(
+                        constraints: const BoxConstraints(
+                          minWidth: 70,
+                          maxWidth: 95,
+                          minHeight: 65,
+                          maxHeight: 90,
+                        ),
+                        alignment: Alignment.center,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            imgUrl,
+                            fit: BoxFit.contain,
+                            errorBuilder: (ctx, err, stack) => const SizedBox.shrink(),
+                          ),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -843,6 +921,7 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
                           italianText: quiz.italian,
                           banglaText: quiz.bangla,
                           imageUrl: quiz.image,
+                          vocabulary: quiz.vocabulary,
                         ),
                       );
                     },
@@ -853,6 +932,7 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
                     color: quiz.isSaved ? Colors.green : Colors.grey.shade700,
                     onTap: () async {
                       final mcq = McqQuestion(
+                        id: quiz.rawId,
                         chapter: 1,
                         chapterName: 'Saved',
                         italian: quiz.italian,
@@ -861,7 +941,7 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
                         image: quiz.image,
                       );
                       if (quiz.isSaved) {
-                        await BookmarkManager.removeQuestion(quiz.italian);
+                        await BookmarkManager.removeQuestion(quiz.italian, quiz.rawId);
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('প্রশ্নটি সেভ তালিকা থেকে সরিয়ে দেওয়া হয়েছে')),
@@ -892,30 +972,32 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              Divider(height: 1, color: isDark ? Colors.white10 : Colors.grey.shade200),
-              const SizedBox(height: 10),
+              if (quiz.giustoCount > 0 || quiz.sbagliatoCount > 0) ...[
+                const SizedBox(height: 12),
+                Divider(height: 1, color: isDark ? Colors.white10 : Colors.grey.shade200),
+                const SizedBox(height: 10),
 
-              // History stats at bottom of card
-              Center(
-                child: Column(
-                  children: [
-                    Text(
-                      '(TU) Hai risposto:',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white70 : Colors.black87),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text('Giusto ${quiz.giustoCount} volte', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF22C55E))),
-                        const SizedBox(width: 14),
-                        Text('Sbagliato ${quiz.sbagliatoCount} volte', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFEF4444))),
-                      ],
-                    ),
-                  ],
+                // History stats at bottom of card
+                Center(
+                  child: Column(
+                    children: [
+                      Text(
+                        '(TU) Hai risposto:',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white70 : Colors.black87),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text('Giusto ${quiz.giustoCount} volte', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF22C55E))),
+                          const SizedBox(width: 14),
+                          Text('Sbagliato ${quiz.sbagliatoCount} volte', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFEF4444))),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),

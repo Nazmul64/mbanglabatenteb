@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../services/api_service.dart';
 import '../theme.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   final bool isDark;
   final ValueChanged<bool> onThemeChanged;
   final bool soundEnabled;
@@ -20,8 +22,145 @@ class ProfileScreen extends StatelessWidget {
   });
 
   @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  String _firstName = '';
+  String _lastName = '';
+  String _phone = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfileData();
+  }
+
+  Future<void> _loadProfileData() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _firstName = (prefs.getString('app_client_first_name') ?? prefs.getString('first_name') ?? '').trim();
+      _lastName = (prefs.getString('app_client_last_name') ?? prefs.getString('last_name') ?? '').trim();
+      _phone = (prefs.getString('app_client_phone') ?? prefs.getString('user_phone') ?? prefs.getString('phone') ?? '').trim();
+    });
+  }
+
+  void _showEditProfileDialog() {
+    final firstController = TextEditingController(text: _firstName);
+    final lastController = TextEditingController(text: _lastName);
+    final phoneController = TextEditingController(text: _phone);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.person_pin_rounded, color: Color(0xFF2563EB)),
+            SizedBox(width: 8),
+            Text('প্রোফাইল তথ্য (User Profile)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'ওয়েবসাইট ও অ্যাপের মধ্যে সেভ করা প্রশ্ন এবং রেজাল্ট সিঙ্ক করার জন্য আপনার নাম ও ফোন নাম্বার সেট করুন:',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: firstController,
+                decoration: InputDecoration(
+                  labelText: 'ফার্স্ট নেম (First Name)',
+                  prefixIcon: const Icon(Icons.person_outline),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: lastController,
+                decoration: InputDecoration(
+                  labelText: 'লাস্ট নেম (Last Name)',
+                  prefixIcon: const Icon(Icons.person_outline),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: phoneController,
+                keyboardType: TextInputType.phone,
+                decoration: InputDecoration(
+                  labelText: 'ফোন নাম্বার (Phone Number)',
+                  prefixIcon: const Icon(Icons.phone_outlined),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('বাতিল'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2563EB),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () async {
+              final fName = firstController.text.trim();
+              final lName = lastController.text.trim();
+              final ph = phoneController.text.trim();
+
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setString('app_client_first_name', fName);
+              await prefs.setString('app_client_last_name', lName);
+              await prefs.setString('app_client_phone', ph);
+              await prefs.setString('user_phone', ph);
+
+              final sessionId = prefs.getString('app_client_session_id') ?? '';
+              if (fName.isNotEmpty && ph.isNotEmpty) {
+                ApiService.verifyClient(
+                  firstName: fName,
+                  lastName: lName,
+                  phone: ph,
+                  sessionId: sessionId,
+                );
+              }
+
+              setState(() {
+                _firstName = fName;
+                _lastName = lName;
+                _phone = ph;
+              });
+
+              if (ctx.mounted) Navigator.pop(ctx);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('প্রোফাইল সফলভাবে আপডেট ও সিঙ্ক হয়েছে!')),
+                );
+              }
+            },
+            child: const Text('সংরক্ষণ করুন'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final isDark = widget.isDark;
+    final fullName = (_firstName.isEmpty && _lastName.isEmpty) ? 'এমবাংলা ইউজার' : '$_firstName $_lastName'.trim();
+    final displayPhone = _phone.isEmpty ? 'ফোন নাম্বার সেট করা হয়নি' : _phone;
+    final initials = (_firstName.isNotEmpty ? _firstName[0] : 'M') + (_lastName.isNotEmpty ? _lastName[0] : 'B');
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -32,8 +171,8 @@ class ProfileScreen extends StatelessWidget {
             child: Column(
               children: [
                 Container(
-                  width: 100,
-                  height: 100,
+                  width: 90,
+                  height: 90,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: AppTheme.primaryGradient,
@@ -45,36 +184,47 @@ class ProfileScreen extends StatelessWidget {
                       ),
                     ],
                   ),
-                  child: const Center(
+                  child: Center(
                     child: Text(
-                      'MB',
-                      style: TextStyle(
-                        fontSize: 32,
+                      initials.toUpperCase(),
+                      style: const TextStyle(
+                        fontSize: 28,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
-                const Text(
-                  'এমবাংলা ইউজার',
-                  style: TextStyle(
-                    fontSize: 22,
+                const SizedBox(height: 14),
+                Text(
+                  fullName,
+                  style: const TextStyle(
+                    fontSize: 20,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                const Text(
-                  'user@mbangla.com',
+                const SizedBox(height: 4),
+                Text(
+                  displayPhone,
                   style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey,
+                    fontSize: 13,
+                    color: _phone.isEmpty ? Colors.orange : Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: _showEditProfileDialog,
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: const Text('নাম ও ফোন নাম্বার এডিট করুন', style: TextStyle(fontSize: 13)),
+                  style: OutlinedButton.styleFrom(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 30),
+          const SizedBox(height: 24),
 
           // Settings Section
           Card(
@@ -88,7 +238,7 @@ class ProfileScreen extends StatelessWidget {
                     subtitle: const Text('ডার্ক ও লাইট থিমের মধ্যে পরিবর্তন করুন'),
                     secondary: const Icon(Icons.dark_mode_outlined),
                     value: isDark,
-                    onChanged: onThemeChanged,
+                    onChanged: widget.onThemeChanged,
                   ),
                   const Divider(height: 1),
                   // Sound Toggle
@@ -96,8 +246,8 @@ class ProfileScreen extends StatelessWidget {
                     title: const Text('শব্দ ও কম্পন (Sound & Vibration)'),
                     subtitle: const Text('জিকির ট্যাপ করার সময় ভাইব্রেশন ও সাউন্ড'),
                     secondary: const Icon(Icons.vibration),
-                    value: soundEnabled,
-                    onChanged: onSoundChanged,
+                    value: widget.soundEnabled,
+                    onChanged: widget.onSoundChanged,
                   ),
                   const Divider(height: 1),
                   // Saved Questions List Page
@@ -106,7 +256,7 @@ class ProfileScreen extends StatelessWidget {
                     title: const Text('সংরক্ষিত প্রশ্নাবলী (Saved Questions)'),
                     subtitle: const Text('আপনার সেভ করে রাখা প্রশ্নগুলো পড়ুন'),
                     trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
-                    onTap: onTapSavedQuestions,
+                    onTap: widget.onTapSavedQuestions,
                   ),
                   const Divider(height: 1),
                   // Clear Data Action
@@ -130,7 +280,7 @@ class ProfileScreen extends StatelessWidget {
                             ),
                             TextButton(
                               onPressed: () {
-                                onClearAllData();
+                                widget.onClearAllData();
                                 Navigator.pop(ctx);
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(content: Text('সকল ডাটা সফলভাবে মুছে ফেলা হয়েছে!')),

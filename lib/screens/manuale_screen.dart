@@ -259,7 +259,7 @@ class _ManualeScreenState extends State<ManualeScreen> {
                                               leading: vImgUrl.isNotEmpty
                                                   ? ClipRRect(
                                                       borderRadius: BorderRadius.circular(8),
-                                                      child: Image.network(vImgUrl, width: 36, height: 36, fit: BoxFit.cover),
+                                                      child: Image.network(vImgUrl, width: 36, height: 36, fit: BoxFit.contain),
                                                     )
                                                   : Container(
                                                       width: 36,
@@ -441,7 +441,7 @@ class ManualeDetailScreen extends StatelessWidget {
                         leading: vImgUrl.isNotEmpty
                             ? ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
-                                child: Image.network(vImgUrl, width: 40, height: 40, fit: BoxFit.cover),
+                                child: Image.network(vImgUrl, width: 40, height: 40, fit: BoxFit.contain),
                               )
                             : Container(
                                 width: 40,
