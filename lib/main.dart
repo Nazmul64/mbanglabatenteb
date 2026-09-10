@@ -6,6 +6,7 @@ import 'screens/saved_questions_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/tutorials_screen.dart';
 import 'screens/dictionary_screen.dart';
+import 'screens/dizionario_search_screen.dart';
 import 'screens/eclass_screen.dart';
 import 'screens/scegli_categoria_screen.dart';
 import 'screens/exam_simulation_screen.dart';
@@ -196,7 +197,22 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   }
 
   void _navigateToDictionary() {
-    _navigateToWithLoader(const DictionaryScreen(), title: 'ডিকশনারি (Dictionary) লোড হচ্ছে...', isProtected: false);
+    _navigateToWithLoader(const DizionarioSearchScreen(), title: 'DIZIONARIO (অভিধান) লোড হচ্ছে...', isProtected: false);
+  }
+
+  void _navigateToWords() {
+    _navigateToWithLoader(const DictionaryScreen(), title: 'WORD (শব্দ তালিকা) লোড হচ্ছে...', isProtected: false);
+  }
+
+  void _navigateToNotedQuestions() {
+    _navigateToWithLoader(
+      const SavedQuestionsScreen(
+        title: 'Noted MCQs',
+        mode: McqScreenMode.noted,
+      ),
+      title: 'নোট করা এমসিকিউ (Noted) লোড হচ্ছে...',
+      isProtected: true,
+    );
   }
 
   void _navigateToSavedQuestions() {
@@ -543,10 +559,12 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
               onTapTextAnalyzer: _navigateToTextAnalyzer,
               onTapQuiz: _navigateToQuiz,
               onTapDictionary: _navigateToDictionary,
+              onTapWords: _navigateToWords,
               onTapProfile: _navigateToProfile,
               onTapSfida: _navigateToSfida,
               onTapCartelli: _navigateToCartelli,
               onTapSavedQuestions: _navigateToSavedQuestions,
+              onTapNotedQuestions: _navigateToNotedQuestions,
               onTapCorrectQuestions: _navigateToCorrectQuestions,
               onTapWrongQuestions: _navigateToWrongQuestions,
               onTapSupport: _navigateToTutorChat,

@@ -12,10 +12,12 @@ class DashboardScreen extends StatefulWidget {
   final VoidCallback onTapTextAnalyzer;
   final VoidCallback onTapQuiz;
   final VoidCallback onTapDictionary;
+  final VoidCallback? onTapWords;
   final VoidCallback onTapProfile;
   final VoidCallback onTapSfida;
   final VoidCallback onTapCartelli;
   final VoidCallback onTapSavedQuestions;
+  final VoidCallback? onTapNotedQuestions;
   final VoidCallback? onTapCorrectQuestions;
   final VoidCallback? onTapWrongQuestions;
   final VoidCallback? onTapSupport;
@@ -31,10 +33,12 @@ class DashboardScreen extends StatefulWidget {
     required this.onTapTextAnalyzer,
     required this.onTapQuiz,
     required this.onTapDictionary,
+    this.onTapWords,
     required this.onTapProfile,
     required this.onTapSfida,
     required this.onTapCartelli,
     required this.onTapSavedQuestions,
+    this.onTapNotedQuestions,
     required this.onTapSocial,
     required this.onTapTranslation,
     this.onTapCorrectQuestions,
@@ -65,9 +69,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _isLoadingCards = false;
       });
     }
-    // Silently pre-warm Argomenti and Cartelli caches for instantaneous 100% fast response
+    // Silently pre-warm Argomenti, Cartelli and Exam caches for instantaneous 100% fast response
     ApiService.fetchChapters().catchError((_) => <dynamic>[]);
     ApiService.fetchCartelliChapters().catchError((_) => <dynamic>[]);
+    ApiService.generateSchedaEsame().catchError((_) => <dynamic>[]);
   }
 
   VoidCallback _getCallbackForScreenKey(String screenKey) {
@@ -81,12 +86,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (key.contains('text') || key.contains('eclass') || key.contains('e_class')) return widget.onTapTextAnalyzer;
     if (key.contains('sfida')) return widget.onTapSfida;
     if (key.contains('quiz') || key.contains('scheda')) return widget.onTapQuiz;
-    if (key.contains('dizionario') || key.contains('dictionary')) return widget.onTapDictionary;
+    
+    // Card 7 vs Card 18
+    if (key == 'word' || key == 'words' || key == 'word_list' || key == 'vocab') return widget.onTapWords ?? widget.onTapDictionary;
+    if (key == 'dictionary' || key == 'dizionario_search' || key == 'dict_search') return widget.onTapDictionary;
+    if (key.contains('dizionario') || key.contains('dictionary')) return widget.onTapWords ?? widget.onTapDictionary;
+
     if (key.contains('cartelli')) return widget.onTapCartelli;
+    if (key.contains('noted')) return widget.onTapNotedQuestions ?? widget.onTapSavedQuestions;
     if (key.contains('saved')) return widget.onTapSavedQuestions;
     if (key.contains('correct')) return widget.onTapCorrectQuestions ?? widget.onTapSavedQuestions;
     if (key.contains('wrong')) return widget.onTapWrongQuestions ?? widget.onTapSavedQuestions;
     if (key.contains('support')) return widget.onTapSupport ?? widget.onTapProfile;
+    if (key.contains('performer') || key.contains('top') || key.contains('ranking')) return widget.onTapProfile;
     return widget.onTapTutorials;
   }
 
@@ -107,6 +119,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (key.contains('text') || key.contains('eclass') || key.contains('e-class')) return const TextAnalyzerIllustration();
     if (key.contains('sfida') || key.contains('challenge')) return const SfidaIllustration();
     if (key.contains('quiz') || key.contains('scheda') || key.contains('exam')) return const QuizIllustration();
+    if (key.contains('noted')) return const NotedMcqsIllustration();
+    if (key.contains('word')) return const WordIllustration();
     if (key.contains('dizionario') || key.contains('dictionary')) return const DictionaryIllustration();
     if (key.contains('cartelli') || key.contains('traffic') || key.contains('sign')) return const CartelliIllustration();
     if (key.contains('saved') || key.contains('bookmark')) return const SavedMcqsIllustration();
@@ -260,12 +274,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     'scheda-esame': 'পরীক্ষার শিট',
     'scheda_esame': 'পরীক্ষার শিট',
     'quiz': 'পরীক্ষার শিট',
+    'word': 'শব্দ তালিকা',
+    'words': 'শব্দ তালিকা',
     'dizionario': 'অভিধান',
     'dictionary': 'অভিধান',
     'cartelli': 'ট্রাফিক সাইন',
     'saved': 'সেভ করা এমসিকিউ',
     'saved_questions': 'সেভ করা এমসিকিউ',
     'saved-mcqs': 'সেভ করা এমসিকিউ',
+    'noted': 'নোট করা এমসিকিউ',
+    'noted_questions': 'নোট করা এমসিকিউ',
+    'noted-mcqs': 'নোট করা এমসিকিউ',
     'correct': 'সঠিক এমসিকিউ',
     'correct_questions': 'সঠিক এমসিকিউ',
     'correct-mcqs': 'সঠিক এমসিকিউ',
@@ -302,9 +321,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       {'title': 'E-CLASS', 'subtitle': 'অনলাইন ক্লাস', 'screen_key': 'eclass', 'icon_class': 'fa-solid fa-chalkboard-user'},
       {'title': 'SFIDA', 'subtitle': 'চ্যালেঞ্জ', 'screen_key': 'sfida', 'icon_class': 'fa-solid fa-trophy'},
       {'title': 'SCHEDA ESAME', 'subtitle': 'পরীক্ষার শিট', 'screen_key': 'scheda-esame', 'icon_class': 'fa-solid fa-file-signature'},
-      {'title': 'DIZIONARIO', 'subtitle': 'অভিধান', 'screen_key': 'dizionario', 'icon_class': 'fa-solid fa-book-open'},
+      {'title': 'WORD', 'subtitle': 'শব্দ তালিকা', 'screen_key': 'word', 'icon_class': 'fa-solid fa-book-open'},
       {'title': 'CARTELLI', 'subtitle': 'ট্রাফিক সাইন', 'screen_key': 'cartelli', 'icon_class': 'fa-solid fa-map-signs'},
       {'title': 'SAVED MCQS', 'subtitle': 'সেভ করা এমসিকিউ', 'screen_key': 'saved-mcqs', 'icon_class': 'fa-solid fa-bookmark'},
+      {'title': 'NOTED MCQS', 'subtitle': 'নোট করা এমসিকিউ', 'screen_key': 'noted-mcqs', 'icon_class': 'fa-regular fa-note-sticky'},
       {'title': 'CORRECT MCQS', 'subtitle': 'সঠিক এমসিকিউ', 'screen_key': 'correct-mcqs', 'icon_class': 'fa-solid fa-circle-check'},
       {'title': 'WRONG MCQS', 'subtitle': 'ভুল এমসিকিউ', 'screen_key': 'wrong-mcqs', 'icon_class': 'fa-solid fa-circle-xmark'},
       {'title': 'SUPPORT', 'subtitle': 'লাইভ চ্যাট', 'screen_key': 'support', 'icon_class': 'fa-solid fa-headset'},
@@ -312,6 +332,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       {'title': 'MANUALE', 'subtitle': 'ম্যানুয়াল থিওরি বই', 'screen_key': 'manuale', 'icon_class': 'fa-solid fa-book-bookmark'},
       {'title': 'PATENTE SOCIAL', 'subtitle': 'কমিউনিটি সোশ্যাল ফিড', 'screen_key': 'patente-social', 'icon_class': 'fa-solid fa-users'},
       {'title': 'TRANSLATION', 'subtitle': 'অনুবাদ ও সঠিক উচ্চারণ', 'screen_key': 'translation', 'icon_class': 'fa-solid fa-language'},
+      {'title': 'DIZIONARIO', 'subtitle': 'অভিধান', 'screen_key': 'dictionary', 'icon_class': 'fa-solid fa-book-bookmark'},
     ];
 
     final List<Map<String, dynamic>> cardList = _apiCards.isNotEmpty
@@ -472,11 +493,15 @@ class _ImageSliderState extends State<ImageSlider> {
   }
 
   Future<void> _fetchBanners() async {
-    final sliders = await ApiService.fetchSliders();
-    if (sliders.isNotEmpty && mounted) {
-      setState(() {
-        _sliders = sliders;
-      });
+    try {
+      final sliders = await ApiService.fetchSliders();
+      if (mounted) {
+        setState(() {
+          _sliders = sliders;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching banners in dashboard: $e');
     }
   }
 
@@ -533,28 +558,34 @@ class _ImageSliderState extends State<ImageSlider> {
               itemCount: _sliders.length,
               itemBuilder: (context, index) {
                 final item = _sliders[index];
+                final formattedUrl = ApiService.formatImageUrl(item.imageUrl);
                 return Stack(
                   children: [
                     Positioned.fill(
-                      child: Image.network(
-                        item.imageUrl,
-                        fit: BoxFit.cover,
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return Container(
-                            color: Colors.grey.shade100,
-                            child: const Center(
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF4CAF50)),
+                      child: formattedUrl.isNotEmpty
+                          ? Image.network(
+                              formattedUrl,
+                              fit: BoxFit.cover,
+                              loadingBuilder: (context, child, loadingProgress) {
+                                if (loadingProgress == null) return child;
+                                return Container(
+                                  color: Colors.grey.shade100,
+                                  child: const Center(
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF4CAF50)),
+                                  ),
+                                );
+                              },
+                              errorBuilder: (context, error, stackTrace) => Container(
+                                color: Colors.grey.shade200,
+                                child: const Icon(Icons.directions_car_rounded, size: 48, color: Color(0xFF4CAF50)),
+                              ),
+                            )
+                          : Container(
+                              color: Colors.grey.shade200,
+                              child: const Icon(Icons.image_outlined, size: 48, color: Colors.grey),
                             ),
-                          );
-                        },
-                        errorBuilder: (context, error, stackTrace) => Container(
-                          color: Colors.grey.shade200,
-                          child: const Icon(Icons.directions_car_rounded, size: 48, color: Color(0xFF4CAF50)),
-                        ),
-                      ),
                     ),
-                    if (item.title.isNotEmpty || item.subtitle.isNotEmpty)
+                    if ((item.title.isNotEmpty && item.title.toLowerCase() != 'banner slider') || (item.subtitle != null && item.subtitle!.isNotEmpty))
                       Positioned.fill(
                         child: Container(
                           decoration: BoxDecoration(
@@ -563,7 +594,7 @@ class _ImageSliderState extends State<ImageSlider> {
                               end: Alignment.bottomCenter,
                               colors: [
                                 Colors.transparent,
-                                Colors.black.withOpacity(0.65),
+                                Colors.black.withOpacity(0.60),
                               ],
                             ),
                           ),
@@ -572,7 +603,7 @@ class _ImageSliderState extends State<ImageSlider> {
                             mainAxisAlignment: MainAxisAlignment.end,
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              if (item.title.isNotEmpty)
+                              if (item.title.isNotEmpty && item.title.toLowerCase() != 'banner slider')
                                 Text(
                                   item.title,
                                   style: const TextStyle(
@@ -583,10 +614,10 @@ class _ImageSliderState extends State<ImageSlider> {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
-                              if (item.subtitle.isNotEmpty) ...[
+                              if (item.subtitle != null && item.subtitle!.isNotEmpty) ...[
                                 const SizedBox(height: 2),
                                 Text(
-                                  item.subtitle,
+                                  item.subtitle!,
                                   style: const TextStyle(
                                     color: Colors.white70,
                                     fontSize: 11.5,

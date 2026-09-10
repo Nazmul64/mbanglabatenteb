@@ -12,6 +12,8 @@ class McqQuestion {
   final String? audio;
   final List<dynamic>? vocabulary;
 
+  final String? userNote;
+
   final int giustoCount;
   final int sbagliatoCount;
 
@@ -26,6 +28,7 @@ class McqQuestion {
     this.imagePosition,
     this.audio,
     this.vocabulary,
+    this.userNote,
     this.giustoCount = 0,
     this.sbagliatoCount = 0,
   });
@@ -53,6 +56,8 @@ class McqQuestion {
         parsedVocab = jsonDecode(rawVocab);
       } catch (_) {}
     }
+
+    final rawUserNote = json['user_note'] ?? json['userNote'] ?? json['note_text'] ?? json['note'] ?? json['notes'];
 
     final int rawGiusto = json['giusto_count'] is int
         ? json['giusto_count']
@@ -88,8 +93,41 @@ class McqQuestion {
       imagePosition: rawImgPos?.toString(),
       audio: rawAudio?.toString(),
       vocabulary: parsedVocab,
+      userNote: rawUserNote?.toString(),
       giustoCount: rawGiusto,
       sbagliatoCount: rawSbagliato,
+    );
+  }
+
+  McqQuestion copyWith({
+    int? id,
+    int? chapter,
+    String? chapterName,
+    String? italian,
+    String? bangla,
+    bool? isVero,
+    String? image,
+    String? imagePosition,
+    String? audio,
+    List<dynamic>? vocabulary,
+    String? userNote,
+    int? giustoCount,
+    int? sbagliatoCount,
+  }) {
+    return McqQuestion(
+      id: id ?? this.id,
+      chapter: chapter ?? this.chapter,
+      chapterName: chapterName ?? this.chapterName,
+      italian: italian ?? this.italian,
+      bangla: bangla ?? this.bangla,
+      isVero: isVero ?? this.isVero,
+      image: image ?? this.image,
+      imagePosition: imagePosition ?? this.imagePosition,
+      audio: audio ?? this.audio,
+      vocabulary: vocabulary ?? this.vocabulary,
+      userNote: userNote ?? this.userNote,
+      giustoCount: giustoCount ?? this.giustoCount,
+      sbagliatoCount: sbagliatoCount ?? this.sbagliatoCount,
     );
   }
 
@@ -105,6 +143,7 @@ class McqQuestion {
       'imagePosition': imagePosition,
       'audio': audio,
       'vocabulary': vocabulary,
+      'userNote': userNote,
       'giustoCount': giustoCount,
       'sbagliatoCount': sbagliatoCount,
     };

@@ -1,3 +1,5 @@
+import '../services/api_service.dart';
+
 class SliderModel {
   final int id;
   final String title;
@@ -25,7 +27,7 @@ class SliderModel {
         id: 0,
         title: '',
         subtitle: '',
-        imageUrl: json,
+        imageUrl: ApiService.formatImageUrl(json),
         linkUrl: '',
         buttonText: '',
         orderIndex: 0,
@@ -33,11 +35,12 @@ class SliderModel {
       );
     }
     final map = json as Map<String, dynamic>;
+    final rawImg = (map['image_url'] ?? map['image'] ?? map['photo'] ?? map['picture'] ?? map['banner_image'])?.toString() ?? '';
     return SliderModel(
       id: map['id'] is int ? map['id'] : int.tryParse(map['id']?.toString() ?? '0') ?? 0,
       title: map['title']?.toString() ?? '',
       subtitle: map['subtitle']?.toString() ?? '',
-      imageUrl: map['image_url']?.toString() ?? map['image']?.toString() ?? '',
+      imageUrl: ApiService.formatImageUrl(rawImg),
       linkUrl: map['link_url']?.toString() ?? map['link']?.toString() ?? '',
       buttonText: map['button_text']?.toString() ?? '',
       orderIndex: map['order_index'] is int ? map['order_index'] : int.tryParse(map['order_index']?.toString() ?? '0') ?? 0,

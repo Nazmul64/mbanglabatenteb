@@ -8,10 +8,13 @@ import '../models/slider_model.dart';
 class ApiService {
   // Candidate Base URLs (Local Development Server Mode)
   static const List<String> candidateBaseUrls = [
-    'http://192.168.42.46:8000/api/v1',
-    'http://192.168.0.101:8000/api/v1',
-    'http://192.168.42.81:8000/api/v1',
+    'http://192.168.0.100:8000/api/v1',
+    'http://192.168.42.190:8000/api/v1',
     'http://192.168.42.129:8000/api/v1',
+    'http://192.168.0.102:8000/api/v1',
+    'http://192.168.0.101:8000/api/v1',
+    'http://192.168.42.46:8000/api/v1',
+    'http://192.168.42.81:8000/api/v1',
     'http://10.0.2.2:8000/api/v1',
     'http://127.0.0.1:8000/api/v1',
     'http://localhost:8000/api/v1',
@@ -50,10 +53,16 @@ class ApiService {
   static String get baseUrl => _resolvedBaseUrl ?? candidateBaseUrls.first;
 
   /// Standard HTTP Headers as specified in API Documentation
-  static Map<String, String> get defaultHeaders => {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      };
+  static Map<String, String> get defaultHeaders {
+    final headers = <String, String>{
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    };
+    if (_authToken != null && _authToken!.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $_authToken';
+    }
+    return headers;
+  }
 
   /// Helper to convert relative image path (/uploads/...) to full absolute HTTP URL
   static String formatImageUrl(String? path) {
@@ -64,14 +73,11 @@ class ApiService {
     final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
     var cleanPath = path.trim();
 
-    if (cleanPath.contains('127.0.0.1:8000') || cleanPath.contains('localhost:8000')) {
-      cleanPath = cleanPath
-          .replaceAll('http://127.0.0.1:8000', serverOrigin)
-          .replaceAll('https://127.0.0.1:8000', serverOrigin)
-          .replaceAll('http://localhost:8000', serverOrigin)
-          .replaceAll('https://localhost:8000', serverOrigin);
-      return cleanPath;
-    }
+    // Dynamically replace any localhost or local dev IP in stored URLs with the current active reachable server origin
+    cleanPath = cleanPath.replaceAll(
+      RegExp(r'https?://(?:127\.0\.0\.1|localhost|192\.168\.\d+\.\d+|10\.0\.2\.2):8000'),
+      serverOrigin,
+    );
 
     if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) return cleanPath;
     final normalized = cleanPath.startsWith('/') ? cleanPath : '/$cleanPath';
@@ -81,9 +87,9 @@ class ApiService {
   static final Map<String, http.Response> _apiResponseCache = {};
 
   /// Helper to perform HTTP GET with dynamic candidate URL resolution & fallback
-  static Future<http.Response?> _getWithFallback(String endpoint, {Map<String, String>? queryParameters}) async {
+  static Future<http.Response?> _getWithFallback(String endpoint, {Map<String, String>? queryParameters, bool useCache = false}) async {
     final cacheKey = '$endpoint?${queryParameters?.entries.map((e) => '${e.key}=${e.value}').join('&') ?? ''}';
-    if (_apiResponseCache.containsKey(cacheKey)) {
+    if (useCache && _apiResponseCache.containsKey(cacheKey)) {
       return _apiResponseCache[cacheKey];
     }
 
@@ -92,7 +98,7 @@ class ApiService {
         final uri = Uri.parse('$_resolvedBaseUrl$endpoint').replace(queryParameters: queryParameters);
         final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 3));
         if (response.statusCode == 200) {
-          _apiResponseCache[cacheKey] = response;
+          if (useCache) _apiResponseCache[cacheKey] = response;
           return response;
         }
       } catch (_) {
@@ -106,7 +112,7 @@ class ApiService {
         final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 1500));
         if (response.statusCode == 200) {
           _resolvedBaseUrl = base;
-          _apiResponseCache[cacheKey] = response;
+          if (useCache) _apiResponseCache[cacheKey] = response;
           debugPrint('Active API Base URL resolved: $base');
           return response;
         }
@@ -214,12 +220,14 @@ class ApiService {
   // ─────────────────────────────────────────────────────
   // 📌 1. Sliders & Banners API
   // ─────────────────────────────────────────────────────
-  /// GET /api/v1/sliders
+  /// GET /api/dashboard/banners or /api/v1/sliders
   static Future<List<SliderModel>> fetchSliders() async {
     try {
-      final response = await _getWithFallback('/sliders');
+      final response = await _getWithFallback('/dashboard/banners') ??
+                       await _getWithFallback('/sliders') ??
+                       await _getWithFallback('/banners');
       final list = _extractList(response);
-      return list.map((e) => SliderModel.fromJson(e)).toList();
+      return list.map((e) => SliderModel.fromJson(e)).where((s) => s.status && s.imageUrl.isNotEmpty).toList();
     } catch (e) {
       debugPrint('Error fetching sliders: $e');
       return [];
@@ -395,29 +403,133 @@ class ApiService {
   }
 
   // ─────────────────────────────────────────────────────
-  // 📌 6. Dizionario API (Italian-Bangla Dictionary)
+  // 📌 6. Dizionario & Word API
   // ─────────────────────────────────────────────────────
-  /// GET /api/v1/dizionario
-  static Future<List<dynamic>> fetchDictionary({String query = '', String search = ''}) async {
+  /// GET /api/v1/dictionary/search?q={query}&letter={letter}
+  static Future<Map<String, dynamic>?> searchDictionary({String query = '', String letter = ''}) async {
+    try {
+      final queryParams = <String, String>{};
+      if (query.trim().isNotEmpty) queryParams['q'] = query.trim();
+      if (letter.trim().isNotEmpty) queryParams['letter'] = letter.trim();
+
+      final response = await _getWithFallback('/dictionary/search', queryParameters: queryParams.isNotEmpty ? queryParams : null);
+      return _extractMap(response);
+    } catch (e) {
+      debugPrint('Error searching dictionary: $e');
+      return null;
+    }
+  }
+
+  /// GET /api/v1/words (or /dizionario)
+  static Future<List<dynamic>> fetchWords({String query = '', String search = ''}) async {
     try {
       final searchTerm = query.isNotEmpty ? query : search;
       final queryParams = searchTerm.isNotEmpty ? {'query': searchTerm, 'search': searchTerm} : null;
-      final response = await _getWithFallback('/dizionario', queryParameters: queryParams);
+      final response = await _getWithFallback('/words', queryParameters: queryParams) ??
+          await _getWithFallback('/dizionario', queryParameters: queryParams);
       return _extractList(response);
     } catch (e) {
-      debugPrint('Error fetching dictionary: $e');
+      debugPrint('Error fetching words: $e');
       return [];
     }
   }
 
-  // ─────────────────────────────────────────────────────
-  // 📌 7. Scheda Esame API (Official 30 MCQs Exam Simulation)
-  // ─────────────────────────────────────────────────────
-  /// GET /api/v1/scheda-esame/generate
-  static Future<List<dynamic>> generateSchedaEsame() async {
+  /// GET /api/v1/dizionario (alias for backward compatibility)
+  static Future<List<dynamic>> fetchDictionary({String query = '', String search = ''}) => fetchWords(query: query, search: search);
+
+  static List<dynamic>? _cachedLiveExamPool;
+
+  /// GET /api/v1/scheda-esame/generate with live Argomenti & Cartelli MCQ aggregation
+  static Future<List<dynamic>> generateSchedaEsame({bool forceRefresh = false}) async {
     try {
-      final response = await _getWithFallback('/scheda-esame/generate') ?? await _getWithFallback('/scheda-esame/sheets');
-      return _extractList(response);
+      // 1. If we have a cached live pool and not forcing refresh, pick 30 random questions instantly
+      if (!forceRefresh && _cachedLiveExamPool != null && _cachedLiveExamPool!.isNotEmpty) {
+        final shuffled = List<dynamic>.from(_cachedLiveExamPool!)..shuffle();
+        return shuffled.take(30).toList();
+      }
+
+      // 2. Try official endpoint first
+      final officialRes = await _getWithFallback('/scheda-esame/generate');
+      final officialList = _extractList(officialRes);
+      if (officialList.isNotEmpty) {
+        _cachedLiveExamPool = officialList;
+        return officialList;
+      }
+
+      // 3. Parallel fetch all live MCQs from Argomenti and Cartelli
+      final List<dynamic> pool = [];
+
+      final results = await Future.wait([
+        fetchChapters(),
+        fetchCartelliChapters(),
+      ]);
+
+      final chapters = results[0];
+      final cartelliChapters = results[1];
+
+      final List<Future<void>> fetchTasks = [];
+
+      // Process Argomenti chapters
+      for (var ch in chapters) {
+        final cId = ch['id'] is int ? ch['id'] as int : int.tryParse('${ch['id']}') ?? 1;
+        final cName = (ch['name'] ?? ch['bn_name'] ?? 'Capitolo $cId').toString();
+
+        fetchTasks.add(() async {
+          final pages = await fetchChapterPages(cId);
+          for (var p in pages) {
+            final pId = p['id'] is int ? p['id'] as int : int.tryParse('${p['id']}') ?? 1;
+            final pageDetails = await fetchPageDetails(pId);
+            if (pageDetails != null && pageDetails['questions'] is List) {
+              for (var q in pageDetails['questions']) {
+                if (q is Map) {
+                  final map = Map<String, dynamic>.from(q);
+                  map['chapter_name'] = map['chapter_name'] ?? cName;
+                  map['chapter_id'] = map['chapter_id'] ?? cId;
+                  if ((map['image'] == null || map['image'].toString().isEmpty) && pageDetails['image'] != null) {
+                    map['image'] = pageDetails['image'];
+                  }
+                  pool.add(map);
+                }
+              }
+            }
+          }
+        }());
+      }
+
+      // Process Cartelli chapters
+      for (var cch in cartelliChapters) {
+        final cId = cch['id'] is int ? cch['id'] as int : int.tryParse('${cch['id']}') ?? 1;
+        final cName = (cch['name'] ?? cch['bn_name'] ?? 'Cartello $cId').toString();
+
+        fetchTasks.add(() async {
+          final cPages = await fetchCartelliPages(cId);
+          for (var cp in cPages) {
+            final cpId = cp['id'] is int ? cp['id'] as int : int.tryParse('${cp['id']}') ?? 1;
+            final mcqs = await fetchCartelliPageMcqs(cpId);
+            for (var mq in mcqs) {
+              if (mq is Map) {
+                final map = Map<String, dynamic>.from(mq);
+                map['chapter_name'] = map['chapter_name'] ?? cName;
+                map['chapter_id'] = map['chapter_id'] ?? cId;
+                if ((map['image'] == null || map['image'].toString().isEmpty) && cp['image'] != null) {
+                  map['image'] = cp['image'];
+                }
+                pool.add(map);
+              }
+            }
+          }
+        }());
+      }
+
+      await Future.wait(fetchTasks);
+
+      if (pool.isNotEmpty) {
+        _cachedLiveExamPool = pool;
+        final shuffled = List<dynamic>.from(pool)..shuffle();
+        return shuffled.take(30).toList();
+      }
+
+      return [];
     } catch (e) {
       debugPrint('Error generating scheda esame: $e');
       return [];
@@ -526,24 +638,35 @@ class ApiService {
     }
   }
 
-  /// GET /api/v1/notes
-  static Future<List<dynamic>> fetchNotes() async {
+  /// GET /api/v1/noted-mcqs
+  static Future<List<dynamic>> fetchNotedMcqs() async {
     try {
-      final response = await _getWithFallback('/notes');
+      final params = await _getUserAuthParams();
+      final response = await _getWithFallback('/noted-mcqs', queryParameters: params.isNotEmpty ? params : null) ??
+          await _getWithFallback('/notes', queryParameters: params.isNotEmpty ? params : null);
       return _extractList(response);
     } catch (e) {
-      debugPrint('Error fetching notes: $e');
+      debugPrint('Error fetching noted mcqs: $e');
       return [];
     }
   }
 
-  /// POST /api/v1/notes
-  static Future<bool> saveNote({required dynamic questionId, required String note}) async {
+  /// GET /api/v1/notes (alias for backward compatibility)
+  static Future<List<dynamic>> fetchNotes() => fetchNotedMcqs();
+
+  /// POST /api/v1/noted-mcqs/save (or /notes)
+  static Future<bool> saveNote({required dynamic questionId, required String note, String? type}) async {
     try {
-      final response = await _postWithFallback('/notes', {
+      final authParams = await _getUserAuthParams();
+      final payload = {
         'question_id': questionId,
         'note': note,
-      });
+        'note_text': note,
+        if (type != null && type.isNotEmpty) 'type': type,
+        ...authParams,
+      };
+      final response = await _postWithFallback('/noted-mcqs/save', payload) ??
+          await _postWithFallback('/notes', payload);
       return response != null && (response.statusCode == 200 || response.statusCode == 201);
     } catch (e) {
       debugPrint('Error saving note: $e');
@@ -551,10 +674,11 @@ class ApiService {
     }
   }
 
-  /// DELETE /api/v1/notes/{id}
+  /// DELETE /api/v1/noted-mcqs/{id}
   static Future<bool> deleteNote(dynamic noteId) async {
     try {
-      final response = await _deleteWithFallback('/notes/$noteId');
+      final response = await _deleteWithFallback('/noted-mcqs/$noteId') ??
+          await _deleteWithFallback('/notes/$noteId');
       return response != null && (response.statusCode == 200 || response.statusCode == 204);
     } catch (e) {
       debugPrint('Error deleting note: $e');

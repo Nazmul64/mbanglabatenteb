@@ -20,6 +20,7 @@ enum McqScreenMode {
   wrong,
   correct,
   saved,
+  noted,
 }
 
 class SavedQuestionsScreen extends StatefulWidget {
@@ -138,6 +139,20 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
             return McqQuestion.fromJson(raw is Map<String, dynamic> ? raw : (json is Map<String, dynamic> ? json : {}));
           }).where((q) => q.italian.isNotEmpty).toList();
         }
+      } else if (widget.mode == McqScreenMode.noted) {
+        final apiData = await ApiService.fetchNotedMcqs();
+        if (apiData.isNotEmpty) {
+          loaded = apiData.map((json) {
+            final raw = (json is Map && json.containsKey('question') && json['question'] != null)
+                ? json['question']
+                : json;
+            final baseQ = McqQuestion.fromJson(raw is Map<String, dynamic> ? raw : (json is Map<String, dynamic> ? json : {}));
+            final noteStr = (json is Map && json['note_text'] != null)
+                ? json['note_text'].toString()
+                : ((json is Map && json['note'] != null) ? json['note'].toString() : null);
+            return noteStr != null ? baseQ.copyWith(userNote: noteStr) : baseQ;
+          }).where((q) => q.italian.isNotEmpty).toList();
+        }
       } else {
         loaded = await BookmarkManager.getSavedQuestions();
       }
@@ -169,6 +184,7 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
             audioUrl: q.audio,
             vocabulary: q.vocabulary,
             isSaved: widget.mode == McqScreenMode.saved,
+            studyNotes: q.userNote ?? '',
             giustoCount: gCount,
             sbagliatoCount: sCount,
           );

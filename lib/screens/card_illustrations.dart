@@ -887,3 +887,61 @@ class TranslationIllustration extends StatelessWidget {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────
+//  17. WORD - Vocabulary Word Book
+// ─────────────────────────────────────────────────────
+class WordIllustration extends StatelessWidget {
+  const WordIllustration({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const CardIllustration(
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Icon(Icons.menu_book_rounded, size: 40, color: Color(0xFF3B82F6)),
+          Positioned(
+            bottom: 2,
+            right: 2,
+            child: Icon(Icons.spellcheck_rounded, size: 18, color: Color(0xFF10B981)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────
+//  18. NOTED MCQS - Yellow Sticky Note with Pencil
+// ─────────────────────────────────────────────────────
+class NotedMcqsIllustration extends StatelessWidget {
+  const NotedMcqsIllustration({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return CardIllustration(
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEF08A),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: const Color(0xFFFACC15), width: 1.5),
+            ),
+            child: const Icon(Icons.sticky_note_2_rounded, size: 24, color: Color(0xFFCA8A04)),
+          ),
+          const Positioned(
+            bottom: 0,
+            right: 0,
+            child: Icon(Icons.edit_rounded, size: 16, color: Color(0xFF10B981)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+

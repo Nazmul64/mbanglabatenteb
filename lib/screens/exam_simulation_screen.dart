@@ -177,7 +177,7 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
     List<ExamQuestion> loaded = [];
 
     try {
-      // Fetch questions generated for 30-question official exam simulation (combines Argomenti + Cartelli)
+      // Fetch live random questions combining Argomenti & Cartelli
       final apiData = await ApiService.generateSchedaEsame();
       if (apiData.isNotEmpty) {
         for (int index = 0; index < apiData.length; index++) {
@@ -203,7 +203,27 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
             }
           }
 
-          final img = (q['image'] ?? q['image_path'] ?? q['img'] ?? q['photo'] ?? q['image_url'] ?? q['cover_image'])?.toString();
+          final rawVocab = q['vocabulary'] ?? q['vocabulary_underlines'];
+          List<dynamic>? parsedVocab;
+          if (rawVocab is List) {
+            parsedVocab = rawVocab;
+          }
+
+          String? img = (q['image'] ?? q['image_path'] ?? q['img'] ?? q['photo'] ?? q['image_url'] ?? q['cover_image'] ?? q['page_image'])?.toString();
+          if (img == null || img.trim().isEmpty || img.trim().toLowerCase() == 'null' || img.trim().toLowerCase() == 'undefined') {
+            if (parsedVocab != null && parsedVocab.isNotEmpty) {
+              for (var v in parsedVocab) {
+                if (v is Map) {
+                  final vImg = (v['image'] ?? v['image_path'] ?? v['img'] ?? v['photo'] ?? v['image_url'])?.toString().trim();
+                  if (vImg != null && vImg.isNotEmpty && vImg.toLowerCase() != 'null' && vImg.toLowerCase() != 'undefined') {
+                    img = vImg;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
           final audio = (q['audio'] ?? q['voice'] ?? q['mp3'] ?? q['audio_url'])?.toString();
           final translation = (q['bangla'] ?? q['translation'] ?? q['traduzione'] ?? q['bn_question'] ?? q['bn_translation'] ?? '').toString();
           final rawQId = q['id'] ?? (index + 1);
@@ -214,42 +234,16 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
             isVero: isVero,
             translation: translation,
             vocabularyHelp: help,
-            vocabulary: q['vocabulary'] ?? q['vocabulary_underlines'],
+            vocabulary: parsedVocab,
             chapter: q['chapter'] is int ? q['chapter'] : int.tryParse(q['chapter']?.toString() ?? '1') ?? 1,
-            chapterName: q['chapter_name']?.toString() ?? 'General Exam',
+            chapterName: q['chapter_name']?.toString() ?? 'Argomenti & Cartelli',
             image: img,
             audio: audio,
           ));
         }
       }
     } catch (e) {
-      debugPrint('Error generating scheda esame: $e');
-    }
-
-    if (loaded.isEmpty) {
-      // Fallback: load 30 questions from local database combining Argomenti & Cartelli
-      final localMcqs = QuestionDatabase.getExamQuestions();
-      for (int index = 0; index < localMcqs.length && index < 30; index++) {
-        final q = localMcqs[index];
-        final Map<String, String> help = {};
-        final words = q.italian.toLowerCase().split(RegExp(r"[^a-zA-Z']"));
-        for (var word in words) {
-          if (word.isNotEmpty && QuestionDatabase.globalGlossary.containsKey(word)) {
-            help[word] = QuestionDatabase.globalGlossary[word]!;
-          }
-        }
-        loaded.add(ExamQuestion(
-          id: '${index + 1}',
-          statement: q.italian,
-          isVero: q.isVero,
-          translation: q.bangla,
-          vocabularyHelp: help,
-          chapter: q.chapter,
-          chapterName: q.chapterName,
-          image: q.image,
-          audio: q.audio,
-        ));
-      }
+      debugPrint('Error generating live scheda esame: $e');
     }
 
     if (mounted) {
@@ -361,27 +355,309 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
   void _finishExam() {
     _examTimer?.cancel();
     final List<ExamResultItem> results = [];
+    int giustoCount = 0;
+    int sbagliatoCount = 0;
+    int nonDateCount = 0;
+
     for (int i = 0; i < _questions.length; i++) {
       final q = _questions[i];
-      results.add(ExamResultItem(
+      final item = ExamResultItem(
         index: i + 1,
         italian: q.statement,
         bangla: q.translation,
         isVero: q.isVero,
         userSelectedVero: q.userSelectedVero,
         chapterName: q.chapterName,
-      ));
+      );
+      results.add(item);
+      if (item.isAttempted) {
+        if (item.isCorrect) {
+          giustoCount++;
+        } else {
+          sbagliatoCount++;
+        }
+      } else {
+        nonDateCount++;
+      }
     }
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ExamResultScreen(
-          results: results,
-          durationSeconds: 1200 - _secondsRemaining,
+    _showExamResultModal(results, giustoCount, sbagliatoCount, nonDateCount);
+  }
+
+  void _showExamResultModal(List<ExamResultItem> results, int giustoCount, int sbagliatoCount, int nonDateCount) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final total = results.length;
+    final isPassed = sbagliatoCount <= 3;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 1. Emoji at Top
+              Text(
+                isPassed ? '😊' : '😔',
+                style: const TextStyle(fontSize: 48),
+              ),
+              const SizedBox(height: 12),
+
+              // 2. Modal Title
+              Text(
+                'Risultato del Test',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // 3. Giusto Card
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF14532D).withOpacity(0.3) : const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isDark ? const Color(0xFF166534) : const Color(0xFFDCFCE7),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Giusto',
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF16A34A),
+                      ),
+                    ),
+                    Text(
+                      '$giustoCount',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF16A34A),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // 4. Sbagliato Card
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF7F1D1D).withOpacity(0.3) : const Color(0xFFFEF2F2),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isDark ? const Color(0xFF991B1B) : const Color(0xFFFEE2E2),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Sbagliato',
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFFDC2626),
+                      ),
+                    ),
+                    Text(
+                      '$sbagliatoCount',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFFDC2626),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // 5. Non date Card
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF78350F).withOpacity(0.3) : const Color(0xFFFFFBEB),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isDark ? const Color(0xFF92400E) : const Color(0xFFFEF3C7),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Non date',
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFFD97706),
+                      ),
+                    ),
+                    Text(
+                      '$nonDateCount',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFFD97706),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // 6. Multi-color Progress Segmented Bar
+              Container(
+                height: 7,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white12 : Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: Row(
+                    children: [
+                      if (giustoCount > 0)
+                        Expanded(
+                          flex: giustoCount,
+                          child: Container(color: const Color(0xFF22C55E)),
+                        ),
+                      if (sbagliatoCount > 0)
+                        Expanded(
+                          flex: sbagliatoCount,
+                          child: Container(color: const Color(0xFFEF4444)),
+                        ),
+                      if (nonDateCount > 0)
+                        Expanded(
+                          flex: nonDateCount,
+                          child: Container(color: const Color(0xFFF59E0B)),
+                        ),
+                      if (total == 0)
+                        Expanded(
+                          child: Container(color: Colors.grey.shade300),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // 7. Mostra Risultato (Green Button)
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ExamResultScreen(
+                          results: results,
+                          durationSeconds: 1200 - _secondsRemaining,
+                        ),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF22C55E),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'Mostra Risultato',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              // 8. Ricomincia & Home Row
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _restartExam();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF3B82F6),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        elevation: 0,
+                      ),
+                      child: const Text(
+                        'Ricomincia',
+                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        Navigator.pop(context);
+                      },
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: isDark ? const Color(0xFF334155) : const Color(0xFFF8FAFC),
+                        foregroundColor: isDark ? Colors.white70 : const Color(0xFF475569),
+                        side: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E8F0)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text(
+                        'Home',
+                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  void _restartExam() {
+    _examTimer?.cancel();
+    setState(() {
+      _currentIndex = 0;
+      _selectedGroupIndex = 0;
+      _secondsRemaining = 1200;
+      for (var q in _questions) {
+        q.userSelectedVero = null;
+      }
+    });
+    _startExamTimer();
   }
 
   bool _showOpzioniToolbar = false;
@@ -1451,14 +1727,16 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                           const SizedBox(width: 10),
                           Expanded(
                             child: OutlinedButton(
-                              onPressed: _currentIndex < _questions.length - 1
-                                  ? () {
-                                      setState(() {
-                                        _currentIndex++;
-                                        _selectedGroupIndex = _currentIndex ~/ 10;
-                                      });
-                                    }
-                                  : null,
+                              onPressed: () {
+                                if (_currentIndex < _questions.length - 1) {
+                                  setState(() {
+                                    _currentIndex++;
+                                    _selectedGroupIndex = _currentIndex ~/ 10;
+                                  });
+                                } else {
+                                  _finishExam();
+                                }
+                              },
                               style: OutlinedButton.styleFrom(
                                 backgroundColor: Colors.white,
                                 foregroundColor: Colors.black87,

@@ -12,6 +12,9 @@ class ChatMessageItem {
   final String time;
   final String? attachmentPath;
   final File? localFile;
+  final bool isLicenseCard;
+  final String? licenseKey;
+  final int days;
 
   const ChatMessageItem({
     required this.text,
@@ -19,6 +22,9 @@ class ChatMessageItem {
     required this.time,
     this.attachmentPath,
     this.localFile,
+    this.isLicenseCard = false,
+    this.licenseKey,
+    this.days = 365,
   });
 }
 
@@ -178,16 +184,45 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
 
     final List<ChatMessageItem> loaded = [];
     for (var item in apiData) {
-      final sender = (item['sender'] ?? 'user').toString();
+      final sender = (item['sender'] ?? item['sender_type'] ?? 'user').toString();
       final text = (item['message'] ?? '').toString();
       final attachment = (item['attachment_path'] ?? item['attachment'] ?? item['image'] ?? item['file'] ?? item['file_path'] ?? item['attachment_url'])?.toString();
       final timeStr = item['created_at']?.toString() ?? 'Just now';
 
+      final bool isCard = item['is_license_card'] == true ||
+          text.contains('[LICENSE_CARD:') ||
+          (item['license_key'] != null && item['license_key'].toString().isNotEmpty);
+
+      String? key = item['license_key']?.toString();
+      int days = 365;
+
+      if (text.contains('[LICENSE_CARD:')) {
+        final matchKey = RegExp(r'key=([0-9a-zA-Z_-]+)').firstMatch(text);
+        final matchDays = RegExp(r'days=(\d+)').firstMatch(text);
+        if (matchKey != null) key = matchKey.group(1);
+        if (matchDays != null) days = int.tryParse(matchDays.group(1) ?? '365') ?? 365;
+      }
+
+      String formattedTime = timeStr;
+      if (timeStr.contains('T')) {
+        try {
+          final parsed = DateTime.parse(timeStr).toLocal();
+          formattedTime = '${parsed.hour.toString().padLeft(2, '0')}:${parsed.minute.toString().padLeft(2, '0')}';
+        } catch (_) {
+          formattedTime = timeStr.split('T')[1].substring(0, 5);
+        }
+      } else if (timeStr.length > 5) {
+        formattedTime = timeStr.substring(timeStr.length - 8, timeStr.length - 3);
+      }
+
       loaded.add(ChatMessageItem(
         text: text,
         isMe: sender == 'user' || sender == 'me',
-        time: timeStr.length > 5 ? timeStr.substring(timeStr.length - 8, timeStr.length - 3) : timeStr,
+        time: formattedTime,
         attachmentPath: attachment,
+        isLicenseCard: isCard,
+        licenseKey: key,
+        days: days,
       ));
     }
 
@@ -320,7 +355,7 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     final fName = _firstNameController.text.trim();
     final lName = _lastNameController.text.trim();
     final success = await ApiService.sendChatMessage(
-          'হ্যালো! আমি অ্যাপ থেকে চ্যাটে যুক্ত হয়েছি',
+      displayText,
       _sessionId,
       _userPhone,
       fName,
@@ -830,8 +865,8 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
 
   Widget _buildMessageBubble(ChatMessageItem msg, bool isDark) {
     // Check if message is a License Card
-    if (msg.text.contains('[LICENSE_CARD:') && msg.text.contains(']')) {
-      return _buildLicenseCard(msg.text, isDark);
+    if (msg.isLicenseCard || (msg.text.contains('[LICENSE_CARD:') && msg.text.contains(']'))) {
+      return _buildLicenseCard(msg, isDark);
     }
 
     final hasImage = (msg.attachmentPath != null && msg.attachmentPath!.isNotEmpty) || msg.localFile != null;
@@ -949,12 +984,23 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
   }
 
   /// Render License Card inside Chat matching Admin & Web UI
-  Widget _buildLicenseCard(String cardText, bool isDark) {
-    final matchKey = RegExp(r'key=(d+)').firstMatch(cardText);
-    final matchDays = RegExp(r'days=(d+)').firstMatch(cardText);
-    final keyStr = matchKey != null ? matchKey.group(1) : '901972';
-    final daysStr = matchDays != null ? matchDays.group(1) : '365';
-    final days = int.tryParse(daysStr ?? '365') ?? 365;
+  Widget _buildLicenseCard(ChatMessageItem msg, bool isDark) {
+    String keyStr = msg.licenseKey ?? '';
+    int days = msg.days;
+
+    if (keyStr.isEmpty) {
+      final matchKey = RegExp(r'key=([0-9a-zA-Z_-]+)').firstMatch(msg.text);
+      if (matchKey != null) keyStr = matchKey.group(1) ?? '';
+    }
+    if (keyStr.isEmpty) {
+      final matchGenericKey = RegExp(r'(\d{5,8})').firstMatch(msg.text);
+      if (matchGenericKey != null) keyStr = matchGenericKey.group(1) ?? '';
+    }
+    if (keyStr.isEmpty) {
+      keyStr = '828996';
+    }
+
+    final daysStr = days.toString();
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
