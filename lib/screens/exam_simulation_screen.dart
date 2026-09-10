@@ -368,6 +368,11 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
         isVero: q.isVero,
         userSelectedVero: q.userSelectedVero,
         chapterName: q.chapterName,
+        chapter: q.chapter,
+        image: q.image,
+        audio: q.audio,
+        vocabulary: q.vocabulary,
+        vocabularyHelp: q.vocabularyHelp,
       );
       results.add(item);
       if (item.isAttempted) {
@@ -1242,7 +1247,8 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
       );
     }
 
-    final currentQuestion = _questions[_currentIndex];
+    final safeIndex = _currentIndex.clamp(0, _questions.length - 1);
+    final currentQuestion = _questions[safeIndex];
 
     return Scaffold(
       appBar: AppBar(
@@ -1321,14 +1327,17 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                       final start = index * 10 + 1;
                       final end = start + 9;
                       final isSelected = _selectedGroupIndex == index;
+                      final isAvailable = (start - 1) < _questions.length;
                       return Expanded(
                         child: InkWell(
-                          onTap: () {
-                            setState(() {
-                              _selectedGroupIndex = index;
-                              _currentIndex = (start - 1).clamp(0, _questions.length - 1);
-                            });
-                          },
+                          onTap: isAvailable
+                              ? () {
+                                  setState(() {
+                                    _selectedGroupIndex = index;
+                                    _currentIndex = (start - 1).clamp(0, _questions.length - 1);
+                                  });
+                                }
+                              : null,
                           child: Container(
                             margin: const EdgeInsets.symmetric(horizontal: 3),
                             padding: const EdgeInsets.symmetric(vertical: 8),
@@ -1347,7 +1356,11 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                                 style: TextStyle(
                                   fontSize: 10.5,
                                   fontWeight: FontWeight.bold,
-                                  color: isSelected ? Colors.white : (isDark ? Colors.white70 : Colors.black54),
+                                  color: isSelected
+                                      ? Colors.white
+                                      : (isAvailable
+                                          ? (isDark ? Colors.white70 : Colors.black54)
+                                          : Colors.grey.shade400),
                                 ),
                               ),
                             ),
@@ -1377,7 +1390,7 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                     ),
                     child: Center(
                       child: Text(
-                        '${_currentIndex + 1}',
+                        '${safeIndex + 1}',
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
@@ -1398,16 +1411,19 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: List.generate(15, (i) {
                           final qIndex = i;
-                          final isCurrent = qIndex == _currentIndex;
-                          final isAnswered = qIndex < _questions.length && _questions[qIndex].userSelectedVero != null;
+                          final isAvailable = qIndex < _questions.length;
+                          final isCurrent = qIndex == safeIndex;
+                          final isAnswered = isAvailable && _questions[qIndex].userSelectedVero != null;
 
                           return InkWell(
-                            onTap: () {
-                              setState(() {
-                                _currentIndex = qIndex;
-                                _selectedGroupIndex = qIndex ~/ 10;
-                              });
-                            },
+                            onTap: isAvailable
+                                ? () {
+                                    setState(() {
+                                      _currentIndex = qIndex;
+                                      _selectedGroupIndex = qIndex ~/ 10;
+                                    });
+                                  }
+                                : null,
                             child: Container(
                               width: 22,
                               height: 22,
@@ -1429,7 +1445,9 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                                   style: TextStyle(
                                     fontSize: 9.5,
                                     fontWeight: FontWeight.bold,
-                                    color: (isCurrent || isAnswered) ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+                                    color: (isCurrent || isAnswered)
+                                        ? Colors.white
+                                        : (isAvailable ? (isDark ? Colors.white70 : Colors.black87) : Colors.grey.shade400),
                                   ),
                                 ),
                               ),
@@ -1442,16 +1460,19 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: List.generate(15, (i) {
                           final qIndex = i + 15;
-                          final isCurrent = qIndex == _currentIndex;
-                          final isAnswered = qIndex < _questions.length && _questions[qIndex].userSelectedVero != null;
+                          final isAvailable = qIndex < _questions.length;
+                          final isCurrent = qIndex == safeIndex;
+                          final isAnswered = isAvailable && _questions[qIndex].userSelectedVero != null;
 
                           return InkWell(
-                            onTap: () {
-                              setState(() {
-                                _currentIndex = qIndex;
-                                _selectedGroupIndex = qIndex ~/ 10;
-                              });
-                            },
+                            onTap: isAvailable
+                                ? () {
+                                    setState(() {
+                                      _currentIndex = qIndex;
+                                      _selectedGroupIndex = qIndex ~/ 10;
+                                    });
+                                  }
+                                : null,
                             child: Container(
                               width: 22,
                               height: 22,
@@ -1473,7 +1494,9 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                                   style: TextStyle(
                                     fontSize: 9.5,
                                     fontWeight: FontWeight.bold,
-                                    color: (isCurrent || isAnswered) ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+                                    color: (isCurrent || isAnswered)
+                                        ? Colors.white
+                                        : (isAvailable ? (isDark ? Colors.white70 : Colors.black87) : Colors.grey.shade400),
                                   ),
                                 ),
                               ),

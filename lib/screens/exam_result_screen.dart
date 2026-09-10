@@ -1,6 +1,15 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'triangle_pattern_painter.dart';
 import 'google_translate_dialog.dart';
+import 'full_translate_dialog.dart';
+import 'question_note_dialog.dart';
+import 'tutor_chat_screen.dart';
+import '../models/bookmark_manager.dart';
+import '../models/mcq_question.dart';
+import '../services/api_service.dart';
 import '../services/html_text_helper.dart';
 import '../models/question_database.dart';
 
@@ -11,6 +20,11 @@ class ExamResultItem {
   final bool isVero;
   final bool? userSelectedVero;
   final String chapterName;
+  final int chapter;
+  final String? image;
+  final String? audio;
+  final List<dynamic>? vocabulary;
+  final Map<String, String> vocabularyHelp;
 
   ExamResultItem({
     required this.index,
@@ -19,6 +33,11 @@ class ExamResultItem {
     required this.isVero,
     required this.userSelectedVero,
     required this.chapterName,
+    this.chapter = 1,
+    this.image,
+    this.audio,
+    this.vocabulary,
+    this.vocabularyHelp = const {},
   });
 
   bool get isAttempted => userSelectedVero != null;
@@ -42,19 +61,144 @@ class ExamResultScreen extends StatefulWidget {
 class _ExamResultScreenState extends State<ExamResultScreen> {
   String _filterMode = 'all'; // 'all', 'correct', 'error', 'no_response'
 
+  final FlutterTts _flutterTts = FlutterTts();
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
+  int? _activeAudioIndex;
+  bool _isPlayingAudio = false;
+  Duration _audioPosition = Duration.zero;
+  Duration _audioDuration = Duration.zero;
+  int? _activeTtsIndex;
+  bool _isTtsPlaying = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initAudioHandlers();
+  }
+
+  void _initAudioHandlers() {
+    _flutterTts.setLanguage('it-IT');
+    _flutterTts.setVolume(1.0);
+    _flutterTts.setPitch(1.0);
+    _flutterTts.setSpeechRate(0.45);
+    _flutterTts.setCompletionHandler(() {
+      if (mounted) {
+        setState(() {
+          _isTtsPlaying = false;
+          _activeTtsIndex = null;
+        });
+      }
+    });
+
+    _audioPlayer.onPlayerStateChanged.listen((state) {
+      if (mounted) {
+        setState(() {
+          _isPlayingAudio = (state == PlayerState.playing);
+        });
+      }
+    });
+
+    _audioPlayer.onPositionChanged.listen((pos) {
+      if (mounted) {
+        setState(() {
+          _audioPosition = pos;
+        });
+      }
+    });
+
+    _audioPlayer.onDurationChanged.listen((dur) {
+      if (mounted) {
+        setState(() {
+          _audioDuration = dur;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _flutterTts.stop();
+    _audioPlayer.dispose();
+    super.dispose();
+  }
+
+  Future<void> _speakItalian(int itemIndex, String text) async {
+    if (_isPlayingAudio) {
+      await _audioPlayer.stop();
+      setState(() => _isPlayingAudio = false);
+    }
+
+    if (_isTtsPlaying && _activeTtsIndex == itemIndex) {
+      await _flutterTts.stop();
+      setState(() {
+        _isTtsPlaying = false;
+        _activeTtsIndex = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _isTtsPlaying = true;
+      _activeTtsIndex = itemIndex;
+    });
+
+    final clean = text.replaceAll(RegExp(r'<[^>]*>'), '');
+    await _flutterTts.speak(clean);
+  }
+
+  Future<void> _toggleAudioPlayback(int itemIndex, String? audioUrl) async {
+    if (audioUrl == null || audioUrl.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('এই প্রশ্নের জন্য বাংলা অডিও উপলব্ধ নেই')),
+      );
+      return;
+    }
+
+    if (_isTtsPlaying) {
+      await _flutterTts.stop();
+      setState(() {
+        _isTtsPlaying = false;
+        _activeTtsIndex = null;
+      });
+    }
+
+    if (_isPlayingAudio && _activeAudioIndex == itemIndex) {
+      await _audioPlayer.pause();
+      setState(() => _isPlayingAudio = false);
+    } else {
+      setState(() {
+        _activeAudioIndex = itemIndex;
+        _isPlayingAudio = true;
+      });
+
+      final url = ApiService.formatImageUrl(audioUrl);
+      try {
+        await _audioPlayer.stop();
+        await _audioPlayer.setVolume(1.0);
+        await _audioPlayer.setSource(UrlSource(url));
+        await _audioPlayer.resume();
+      } catch (e) {
+        debugPrint('Error playing MP3 audio in results: $e');
+        if (mounted) {
+          setState(() => _isPlayingAudio = false);
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final total = widget.results.length;
-    final attempted = widget.results.where((r) => r.isAttempted).length;
     final correct = widget.results.where((r) => r.isAttempted && r.isCorrect).length;
     final incorrect = widget.results.where((r) => r.isAttempted && !r.isCorrect).length;
     final noResponse = widget.results.where((r) => !r.isAttempted).length;
 
-    final bool isPassed = incorrect <= 3;
-    final double scorePercent = total > 0 ? (correct / total) * 100 : 0;
+    final bool isPassed = total >= 30
+        ? (incorrect <= 3)
+        : (total > 0 && correct > incorrect && incorrect == 0);
     final minutes = widget.durationSeconds ~/ 60;
     final seconds = widget.durationSeconds % 60;
 
@@ -68,14 +212,18 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
     }
 
     return Scaffold(
+      backgroundColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text('Risultato del Test', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-        centerTitle: true,
-        backgroundColor: isDark ? const Color(0xFF121829) : Colors.white,
-        foregroundColor: isDark ? Colors.white : Colors.black87,
-        elevation: 0.5,
+        title: const Text(
+          'Tmm Patente',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 19, color: Colors.black87),
+        ),
+        centerTitle: false,
+        backgroundColor: const Color(0xFF81C784), // Light green top bar
+        foregroundColor: Colors.black87,
+        elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
+          icon: const Icon(Icons.arrow_back_rounded, color: Colors.black87),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -92,119 +240,129 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
           ),
           SafeArea(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
               physics: const BouncingScrollPhysics(),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // 1. Result Status Card (Matching Screenshot 2)
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: isDark ? const Color(0xFF1E294B) : Colors.white,
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade200),
-                    ),
+                  const SizedBox(height: 8),
+
+                  // 1. Top Face & Status Section (Matching Screenshot 1)
+                  Center(
                     child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text('🥰', style: TextStyle(fontSize: 48)),
-                        const SizedBox(height: 8),
+                        // Expressive Circular Face Drawing
+                        SizedBox(
+                          width: 84,
+                          height: 84,
+                          child: CustomPaint(
+                            painter: ResultFacePainter(isPassed: isPassed),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Bocciato / Promosso Text
                         Text(
-                          isPassed ? 'Idoneo (Pass)' : 'Bocciato (Fail)',
+                          isPassed ? 'Promosso' : 'Bocciato',
                           style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w900,
-                            color: isPassed ? const Color(0xFF22C55E) : const Color(0xFFEF4444),
+                            fontSize: 26,
+                            fontWeight: FontWeight.w800,
+                            color: isPassed ? const Color(0xFF4CAF50) : const Color(0xFFEF5350),
+                            letterSpacing: 0.2,
                           ),
                         ),
                         const SizedBox(height: 4),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text('Result: ', style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
-                            Text(isPassed ? 'Pass ✔' : 'Fail ✘', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: isPassed ? const Color(0xFF22C55E) : const Color(0xFFEF4444))),
-                          ],
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Score: ${scorePercent.toStringAsFixed(0)}%',
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                        ),
+
+                        // Tempo: 0 minuti 21 secondi
                         Text(
                           'Tempo: $minutes minuti $seconds secondi',
-                          style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: isDark ? Colors.grey[400] : Colors.grey[600],
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 16),
 
-                  // 2. 5 Summary Metric Boxes (Matching Screenshot 2)
+                  // 2. Summary Metric Badges Row (Corrette, Errori, Non risposte with Eye Icons)
                   Row(
                     children: [
-                      _buildMetricCard('TOTAL QUESTIONS', '$total', Colors.blue, isDark),
-                      _buildMetricCard('ATTEMPTED', '$attempted', Colors.teal, isDark),
-                      _buildMetricCard('CORRECT', '$correct', const Color(0xFF22C55E), isDark),
-                      _buildMetricCard('INCORRECT', '$incorrect', const Color(0xFFEF4444), isDark),
-                      _buildMetricCard('NO RESPONSE', '$noResponse', const Color(0xFFF59E0B), isDark),
+                      Expanded(
+                        child: _buildMetricPill(
+                          label: 'Corrette: $correct',
+                          color: const Color(0xFF2E7D32),
+                          borderColor: const Color(0xFF4CAF50),
+                          mode: 'correct',
+                          isDark: isDark,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildMetricPill(
+                          label: 'Errori: $incorrect',
+                          color: const Color(0xFFC62828),
+                          borderColor: const Color(0xFFEF5350),
+                          mode: 'error',
+                          isDark: isDark,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildMetricPill(
+                          label: 'Non risposte: $noResponse',
+                          color: const Color(0xFFEF6C00),
+                          borderColor: const Color(0xFFFFA000),
+                          mode: 'no_response',
+                          isDark: isDark,
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 14),
 
-                  // Yellow accent bar
+                  // 3. Tri-Color Segmented Horizontal Bar (Matching Screenshot 1)
                   Container(
-                    height: 4,
+                    height: 14,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF59E0B),
-                      borderRadius: BorderRadius.circular(2),
+                      color: isDark ? Colors.white12 : Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Row(
+                      children: [
+                        if (correct > 0)
+                          Expanded(
+                            flex: correct,
+                            child: Container(color: const Color(0xFF4CAF50)),
+                          ),
+                        if (incorrect > 0)
+                          Expanded(
+                            flex: incorrect,
+                            child: Container(color: const Color(0xFFEF5350)),
+                          ),
+                        if (noResponse > 0)
+                          Expanded(
+                            flex: noResponse,
+                            child: Container(color: const Color(0xFFFFA000)),
+                          ),
+                        if (total == 0)
+                          Expanded(
+                            child: Container(color: Colors.grey.shade300),
+                          ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
 
-                  // 3. Topic Performance Analysis Header
-                  Row(
-                    children: [
-                      const Icon(Icons.language_rounded, size: 18, color: Color(0xFF22C55E)),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          'Analisi delle prestazioni per argomento (টপিক পারফরম্যান্স বিশ্লেষণ)',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
-                            color: isDark ? Colors.white : Colors.black87,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // 4. Filter Pill Badges (Matching Screenshot 3)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      ElevatedButton(
-                        onPressed: () => setState(() => _filterMode = 'all'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _filterMode == 'all' ? const Color(0xFF1E294B) : (isDark ? Colors.white10 : Colors.grey.shade100),
-                          foregroundColor: _filterMode == 'all' ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        ),
-                        child: const Text('Mostra tutte', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                      ),
-                      _buildFilterBadge('Corrette: $correct', const Color(0xFF22C55E), 'correct', isDark),
-                      _buildFilterBadge('Errori: $incorrect', const Color(0xFFEF4444), 'error', isDark),
-                      _buildFilterBadge('Non risposte: $noResponse', const Color(0xFFF59E0B), 'no_response', isDark),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // 5. Questions Detailed List (Matching Screenshot 3)
+                  // 4. Questions Detailed Cards List
                   Column(
                     children: filteredList.map((item) => _buildQuestionResultCard(item, isDark)).toList(),
                   ),
+                  const SizedBox(height: 24),
                 ],
               ),
             ),
@@ -214,216 +372,148 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
     );
   }
 
-  Widget _buildMetricCard(String label, String value, Color color, bool isDark) {
-    return Expanded(
+  Widget _buildMetricPill({
+    required String label,
+    required Color color,
+    required Color borderColor,
+    required String mode,
+    required bool isDark,
+  }) {
+    final bool isSelected = _filterMode == mode;
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _filterMode = (_filterMode == mode) ? 'all' : mode;
+        });
+      },
+      borderRadius: BorderRadius.circular(24),
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 2),
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E294B) : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade300),
-        ),
-        child: Column(
-          children: [
-            Text(
-              label,
-              style: const TextStyle(fontSize: 6.5, fontWeight: FontWeight.w900, color: Colors.grey),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              value,
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: color),
+          color: isSelected
+              ? borderColor.withOpacity(0.18)
+              : (isDark ? const Color(0xFF1E293B) : Colors.white),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: borderColor,
+            width: isSelected ? 2.2 : 1.8,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.03),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildFilterBadge(String label, Color color, String mode, bool isDark) {
-    bool isSelected = _filterMode == mode;
-    return InkWell(
-      onTap: () => setState(() => _filterMode = mode),
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: isSelected ? color.withOpacity(0.15) : (isDark ? Colors.white10 : Colors.grey.shade100),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: isSelected ? color : Colors.transparent),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isSelected ? color : Colors.grey),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12.0,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : color,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                Icons.visibility_rounded,
+                size: 14,
+                color: isDark ? Colors.white70 : color,
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildQuestionResultCard(ExamResultItem item, bool isDark) {
-    Color cardColor;
-    String statusText;
-    Color statusColor;
+    Color cardBorderColor;
 
     if (!item.isAttempted) {
-      cardColor = const Color(0xFFF59E0B);
-      statusText = 'No Response';
-      statusColor = const Color(0xFFF59E0B);
+      cardBorderColor = const Color(0xFFFFA000); // Orange
     } else if (item.isCorrect) {
-      cardColor = const Color(0xFF22C55E);
-      statusText = 'Corretto';
-      statusColor = const Color(0xFF16A34A);
+      cardBorderColor = const Color(0xFF4CAF50); // Green
     } else {
-      cardColor = const Color(0xFFEF4444);
-      statusText = 'Errore';
-      statusColor = const Color(0xFFEF4444);
+      cardBorderColor = const Color(0xFFEF5350); // Red
     }
+
+    final hasImage = item.image != null &&
+        item.image!.trim().isNotEmpty &&
+        item.image!.toLowerCase() != 'null' &&
+        item.image!.toLowerCase() != 'undefined';
+
+    final isThisAudioPlaying = _isPlayingAudio && _activeAudioIndex == item.index;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E294B) : Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: cardColor,
+          color: cardBorderColor,
           width: 2.0,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(14.0),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Card Header: Domanda #N & Status Badge (Matching Screenshot 3)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Domanda #${item.index}',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white54 : Colors.grey.shade600,
-                  ),
-                ),
-
-                // Status Badge
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: statusColor.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        !item.isAttempted
-                            ? Icons.info_outline_rounded
-                            : (item.isCorrect ? Icons.check_circle_rounded : Icons.cancel_rounded),
-                        size: 10,
-                        color: statusColor,
-                      ),
-                      const SizedBox(width: 3),
-                      Text(
-                        statusText,
-                        style: TextStyle(
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w900,
-                          color: statusColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-
-            // Italian Question Statement with Underlined Vocabulary Tap
-            RichText(
-              text: TextSpan(
-                children: _buildUnderlinedStatement(item.italian, isDark),
+            // Question Number at top left
+            Text(
+              '${item.index}',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white54 : Colors.grey.shade600,
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 6),
 
-            // Option Boxes: VERO (True) & FALSO (False) (Matching Screenshot 3)
+            // Middle Section: Left Image (if present) + Right Italian Statement
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    decoration: BoxDecoration(
-                      color: item.isVero
-                          ? const Color(0xFF22C55E).withOpacity(0.1)
-                          : (isDark ? Colors.white.withOpacity(0.04) : Colors.grey.shade100),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: item.isVero ? const Color(0xFF22C55E) : Colors.grey.shade300,
-                        width: item.isVero ? 2.0 : 1.0,
+                if (hasImage) ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      width: 78,
+                      height: 78,
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.white10 : Colors.grey.shade100,
+                        border: Border.all(color: isDark ? Colors.white12 : Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'VERO (True)',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
-                            color: item.isVero ? const Color(0xFF16A34A) : (isDark ? Colors.white70 : Colors.black87),
-                          ),
+                      child: Image.network(
+                        ApiService.formatImageUrl(item.image),
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) => const Center(
+                          child: Icon(Icons.broken_image_rounded, size: 28, color: Colors.grey),
                         ),
-                        if (item.isVero) ...[
-                          const SizedBox(width: 6),
-                          const Icon(Icons.check_circle_rounded, size: 14, color: Color(0xFF16A34A)),
-                        ],
-                      ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
+                  const SizedBox(width: 12),
+                ],
                 Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    decoration: BoxDecoration(
-                      color: !item.isVero
-                          ? const Color(0xFF22C55E).withOpacity(0.1)
-                          : (isDark ? Colors.white.withOpacity(0.04) : Colors.grey.shade100),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: !item.isVero ? const Color(0xFF22C55E) : Colors.grey.shade300,
-                        width: !item.isVero ? 2.0 : 1.0,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'FALSO (False)',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
-                            color: !item.isVero ? const Color(0xFF16A34A) : (isDark ? Colors.white70 : Colors.black87),
-                          ),
-                        ),
-                        if (!item.isVero) ...[
-                          const SizedBox(width: 6),
-                          const Icon(Icons.check_circle_rounded, size: 14, color: Color(0xFF16A34A)),
-                        ],
-                      ],
+                  child: RichText(
+                    text: TextSpan(
+                      children: _buildUnderlinedStatement(item, isDark),
                     ),
                   ),
                 ),
@@ -431,34 +521,224 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
             ),
             const SizedBox(height: 12),
 
-            // Answer Result Details Footer (Matching Screenshot 3)
+            // Action Buttons Row (Speaker, Bookmark, Notes, Tutor, MCQ List, Translate, Book Info)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                // 1. Blue Speaker Button (Italian TTS)
+                _buildActionIcon(
+                  icon: Icons.volume_up_rounded,
+                  color: Colors.white,
+                  bgColor: const Color(0xFF3F51B5),
+                  onTap: () => _speakItalian(item.index, item.italian),
+                ),
+
+                // 2. Green Bookmark Button
+                _buildActionIcon(
+                  icon: Icons.bookmark_border_rounded,
+                  color: const Color(0xFF2E7D32),
+                  bgColor: Colors.transparent,
+                  onTap: () async {
+                    final mcq = McqQuestion(
+                      id: item.index,
+                      chapter: item.chapter,
+                      chapterName: item.chapterName,
+                      italian: item.italian,
+                      bangla: item.bangla,
+                      isVero: item.isVero,
+                      image: item.image,
+                      audio: item.audio,
+                      vocabulary: item.vocabulary,
+                    );
+                    await BookmarkManager.saveQuestion(mcq);
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('প্রশ্নটি সেভ করা হয়েছে')),
+                      );
+                    }
+                  },
+                ),
+
+                // 3. Blue Note Button
+                _buildActionIcon(
+                  icon: Icons.note_alt_outlined,
+                  color: const Color(0xFF1976D2),
+                  bgColor: Colors.transparent,
+                  onTap: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => QuestionNoteDialog(
+                        questionId: '${item.index}',
+                        initialNote: '',
+                        onSave: (note) {},
+                      ),
+                    );
+                  },
+                ),
+
+                // 4. Tutor Agent with Badge "1"
+                InkWell(
+                  onTap: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const TutorChatScreen()));
+                  },
+                  borderRadius: BorderRadius.circular(20),
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.support_agent_rounded, size: 22, color: Color(0xFF1E40AF)),
+                        ),
+                      ),
+                      Positioned(
+                        right: -2,
+                        top: -2,
+                        child: Container(
+                          padding: const EdgeInsets.all(3),
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          constraints: const BoxConstraints(minWidth: 12, minHeight: 12),
+                          child: const Center(
+                            child: Text(
+                              '1',
+                              style: TextStyle(color: Colors.white, fontSize: 7.5, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // 5. MCQ List Button
+                _buildActionIcon(
+                  icon: Icons.format_list_bulleted_rounded,
+                  color: const Color(0xFF0288D1),
+                  bgColor: Colors.transparent,
+                  onTap: () {},
+                ),
+
+                // 6. Purple Translate Button (অ আ / A)
+                _buildActionIcon(
+                  icon: Icons.translate_rounded,
+                  color: const Color(0xFF7B1FA2),
+                  bgColor: Colors.transparent,
+                  onTap: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => FullTranslateDialog(
+                        italianText: item.italian,
+                        banglaText: item.bangla,
+                        imageUrl: item.image,
+                        vocabulary: item.vocabulary,
+                      ),
+                    );
+                  },
+                ),
+
+                // 7. Info Book Button
+                _buildActionIcon(
+                  icon: Icons.menu_book_rounded,
+                  color: const Color(0xFF00838F),
+                  bgColor: Colors.transparent,
+                  onTap: () {
+                    _showTheoryDialog(item);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Audio Player Bar with Slider
             Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: isDark ? Colors.white.withOpacity(0.02) : Colors.grey.shade50,
-                borderRadius: BorderRadius.circular(10),
+                color: isDark ? Colors.white.withOpacity(0.04) : const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(24),
               ),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: Icon(
+                      isThisAudioPlaying ? Icons.pause_circle_filled_rounded : Icons.play_circle_fill_rounded,
+                      size: 28,
+                      color: const Color(0xFF4CAF50),
+                    ),
+                    onPressed: () => _toggleAudioPlayback(item.index, item.audio),
+                  ),
+                  Expanded(
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 4.0,
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 10.0),
+                        activeTrackColor: const Color(0xFF4CAF50),
+                        inactiveTrackColor: isDark ? Colors.white12 : Colors.grey.shade300,
+                        thumbColor: const Color(0xFF4CAF50),
+                      ),
+                      child: Slider(
+                        value: isThisAudioPlaying && _audioDuration.inMilliseconds > 0
+                            ? (_audioPosition.inMilliseconds / _audioDuration.inMilliseconds).clamp(0.0, 1.0)
+                            : 0.0,
+                        onChanged: (val) {
+                          if (isThisAudioPlaying && _audioDuration.inMilliseconds > 0) {
+                            final seekTo = Duration(milliseconds: (val * _audioDuration.inMilliseconds).toInt());
+                            _audioPlayer.seek(seekTo);
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Footer: Risposta Corretta & Hai risposto
+            Center(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     'Risposta Corretta: ${item.isVero ? "V" : "F"}',
                     style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.white70 : Colors.black87,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: isDark ? Colors.white : Colors.black87,
                     ),
                   ),
                   const SizedBox(height: 2),
-                  Text(
-                    '(TU) Hai risposto: ${!item.isAttempted ? "Non hai risposto (No Response)" : (item.userSelectedVero! ? "Vero" : "Falso")}',
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.bold,
-                      color: !item.isAttempted
-                          ? const Color(0xFFF59E0B)
-                          : (item.isCorrect ? const Color(0xFF16A34A) : const Color(0xFFEF4444)),
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        '(TU) Hai risposto: ',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: isDark ? Colors.white70 : Colors.black87,
+                        ),
+                      ),
+                      Text(
+                        !item.isAttempted
+                            ? 'Non risposto'
+                            : (item.userSelectedVero! ? 'V' : 'F'),
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          color: !item.isAttempted
+                              ? const Color(0xFFFFA000)
+                              : (item.isCorrect ? const Color(0xFF4CAF50) : const Color(0xFFEF5350)),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -469,14 +749,59 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
     );
   }
 
-  List<InlineSpan> _buildUnderlinedStatement(String statement, bool isDark) {
+  Widget _buildActionIcon({
+    required IconData icon,
+    required Color color,
+    required Color bgColor,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          color: bgColor,
+          shape: BoxShape.circle,
+        ),
+        child: Center(
+          child: Icon(icon, color: color, size: 20),
+        ),
+      ),
+    );
+  }
+
+  List<InlineSpan> _buildUnderlinedStatement(ExamResultItem item, bool isDark) {
     return HtmlTextHelper.buildParsedStatementSpans(
-      statement: statement,
+      statement: item.italian,
       isDark: isDark,
-      fontSize: 13.0,
+      fontSize: 14.5,
+      vocabulary: item.vocabulary,
       onTapWord: (rawWord, cleanWord) {
-        String translation = '';
-        if (QuestionDatabase.globalGlossary.containsKey(cleanWord.toLowerCase())) {
+        String? vocabImage;
+        String translation = item.vocabularyHelp[cleanWord] ?? '';
+
+        if (item.vocabulary != null && item.vocabulary!.isNotEmpty) {
+          for (var v in item.vocabulary!) {
+            if (v is Map) {
+              final word = (v['italian'] ?? v['word'] ?? v['italian_word'] ?? '').toString().trim().toLowerCase();
+              final rawLower = rawWord.toLowerCase().trim();
+              final cleanLower = cleanWord.toLowerCase().trim();
+              if (word.isNotEmpty && (word == cleanLower || word == rawLower || rawLower == word || cleanLower == word)) {
+                final bn = (v['bangla'] ?? v['meaning'] ?? v['bangla_meaning'] ?? v['translation'] ?? '').toString().trim();
+                if (bn.isNotEmpty) translation = bn;
+                final img = (v['image'] ?? v['image_path'] ?? v['img'] ?? v['photo'] ?? v['image_url'])?.toString().trim();
+                if (img != null && img.isNotEmpty && img.toLowerCase() != 'null' && img.toLowerCase() != 'undefined') {
+                  vocabImage = img;
+                }
+                break;
+              }
+            }
+          }
+        }
+
+        if (translation.isEmpty && QuestionDatabase.globalGlossary.containsKey(cleanWord.toLowerCase())) {
           translation = QuestionDatabase.globalGlossary[cleanWord.toLowerCase()]!;
         }
         if (translation.isEmpty && QuestionDatabase.globalGlossary.containsKey(rawWord.toLowerCase())) {
@@ -486,11 +811,207 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
         showDialog(
           context: context,
           builder: (context) => GoogleTranslateDialog(
-            italianText: rawWord.isNotEmpty ? rawWord : cleanWord,
+            italianText: cleanWord.isNotEmpty ? cleanWord : rawWord,
             localTranslation: translation,
+            imageUrl: vocabImage,
           ),
         );
       },
     );
   }
+
+  void _showTheoryDialog(ExamResultItem item) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(Icons.menu_book_rounded, color: Color(0xFF00838F), size: 24),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                item.chapterName,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Capitolo ${item.chapter}',
+                style: const TextStyle(fontSize: 13, color: Colors.grey, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                item.italian,
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, height: 1.4),
+              ),
+              if (item.bangla.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    item.bangla,
+                    style: TextStyle(fontSize: 14, color: Colors.green.shade900, height: 1.3),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Chiudi / বন্ধ করুন', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Custom Vector Face Painter matching Screenshot 1 exactly
+class ResultFacePainter extends CustomPainter {
+  final bool isPassed;
+
+  ResultFacePainter({required this.isPassed});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 - 2;
+
+    // 1. Head outline
+    final headPaint = Paint()
+      ..color = Colors.black
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.5;
+
+    final fillPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+
+    canvas.drawCircle(center, radius, fillPaint);
+    canvas.drawCircle(center, radius, headPaint);
+
+    if (isPassed) {
+      // Happy smiling face
+      // Left eye
+      final eyePaint = Paint()
+        ..color = Colors.black
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.5
+        ..strokeCap = StrokeCap.round;
+
+      // Smiling eyes (arcs)
+      canvas.drawArc(
+        Rect.fromCircle(center: Offset(center.dx - 16, center.dy - 6), radius: 10),
+        3.14,
+        3.14,
+        false,
+        eyePaint,
+      );
+      // Right eye
+      canvas.drawArc(
+        Rect.fromCircle(center: Offset(center.dx + 16, center.dy - 6), radius: 10),
+        3.14,
+        3.14,
+        false,
+        eyePaint,
+      );
+
+      // Smiling mouth
+      canvas.drawArc(
+        Rect.fromCircle(center: Offset(center.dx, center.dy + 8), radius: 18),
+        0.2,
+        3.14 - 0.4,
+        false,
+        eyePaint,
+      );
+    } else {
+      // Bocciato face matching Screenshot 1
+      // 1. Big Eyes Circles
+      final eyeStroke = Paint()
+        ..color = Colors.black
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.0;
+
+      final eyeFill = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.fill;
+
+      final leftEyeCenter = Offset(center.dx - 16, center.dy - 8);
+      final rightEyeCenter = Offset(center.dx + 16, center.dy - 8);
+      const eyeRadius = 12.0;
+
+      canvas.drawCircle(leftEyeCenter, eyeRadius, eyeFill);
+      canvas.drawCircle(leftEyeCenter, eyeRadius, eyeStroke);
+      canvas.drawCircle(rightEyeCenter, eyeRadius, eyeFill);
+      canvas.drawCircle(rightEyeCenter, eyeRadius, eyeStroke);
+
+      // 2. Cyan / Blue Pupils looking upward (rolling eyes)
+      final pupilStroke = Paint()
+        ..color = const Color(0xFF00BCD4)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5;
+
+      final pupilFill = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.fill;
+
+      final leftPupilCenter = Offset(leftEyeCenter.dx + 1.5, leftEyeCenter.dy - 4.5);
+      final rightPupilCenter = Offset(rightEyeCenter.dx + 1.5, rightEyeCenter.dy - 4.5);
+      const pupilRadius = 5.0;
+
+      canvas.drawCircle(leftPupilCenter, pupilRadius, pupilFill);
+      canvas.drawCircle(leftPupilCenter, pupilRadius, pupilStroke);
+      canvas.drawCircle(rightPupilCenter, pupilRadius, pupilFill);
+      canvas.drawCircle(rightPupilCenter, pupilRadius, pupilStroke);
+
+      // 3. Eyebrows
+      final browPaint = Paint()
+        ..color = Colors.black
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.0
+        ..strokeCap = StrokeCap.round;
+
+      // Left eyebrow
+      canvas.drawLine(
+        Offset(center.dx - 26, center.dy - 24),
+        Offset(center.dx - 6, center.dy - 25),
+        browPaint,
+      );
+      // Right eyebrow
+      canvas.drawLine(
+        Offset(center.dx + 6, center.dy - 25),
+        Offset(center.dx + 26, center.dy - 24),
+        browPaint,
+      );
+
+      // 4. Straight / slightly wavy flat mouth
+      final mouthPaint = Paint()
+        ..color = Colors.black
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.5
+        ..strokeCap = StrokeCap.round;
+
+      canvas.drawLine(
+        Offset(center.dx - 14, center.dy + 16),
+        Offset(center.dx + 14, center.dy + 16),
+        mouthPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant ResultFacePainter oldDelegate) => oldDelegate.isPassed != isPassed;
 }

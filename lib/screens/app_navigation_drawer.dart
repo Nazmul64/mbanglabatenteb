@@ -36,13 +36,8 @@ class _AppNavigationDrawerState extends State<AppNavigationDrawer> {
     final settings = await ApiService.fetchSettings();
     if (mounted) {
       setState(() {
-        if (settings != null) {
-          final mode = (settings['server_mode'] ?? settings['qr_target_mode'] ?? 'local').toString().toLowerCase();
-          _activeServerMode = mode == 'live' ? 'LIVE PRODUCTION' : 'LOCAL DEVELOPMENT';
-          _activeBaseUrl = (settings['active_base_url'] ?? ApiService.baseUrl).toString();
-        } else {
-          _activeServerMode = ApiService.baseUrl.contains('mbanglapatenteb.com') ? 'LIVE PRODUCTION' : 'LOCAL SERVER';
-        }
+        _activeBaseUrl = ApiService.baseUrl;
+        _activeServerMode = ApiService.baseUrl.contains('mbanglapatenteb.com') ? 'LIVE PRODUCTION' : 'LOCAL DEVELOPMENT';
       });
     }
   }

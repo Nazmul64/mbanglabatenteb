@@ -6,28 +6,36 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/slider_model.dart';
 
 class ApiService {
-  // Candidate Base URLs (Local Development Server Mode)
+  // Production Live Server Mode
   static const List<String> candidateBaseUrls = [
-    'http://192.168.0.100:8000/api/v1',
-    'http://192.168.42.190:8000/api/v1',
-    'http://192.168.42.129:8000/api/v1',
-    'http://192.168.0.102:8000/api/v1',
-    'http://192.168.0.101:8000/api/v1',
-    'http://192.168.42.46:8000/api/v1',
-    'http://192.168.42.81:8000/api/v1',
-    'http://10.0.2.2:8000/api/v1',
-    'http://127.0.0.1:8000/api/v1',
-    'http://localhost:8000/api/v1',
+    'https://mbanglapatenteb.com/api/v1',
+    'https://www.mbanglapatenteb.com/api/v1',
   ];
 
   static String? _resolvedBaseUrl;
+  static String? _activeSessionId;
+  static String? _activeClientPhone;
 
-  /// Initialize server configuration by probing local URLs and fetching active settings
+  static void setSessionContext({String? sessionId, String? phone}) {
+    if (sessionId != null && sessionId.isNotEmpty) _activeSessionId = sessionId;
+    if (phone != null && phone.isNotEmpty) _activeClientPhone = phone;
+  }
+
+  /// Flushes in-memory response caches and resets active server resolution
+  static void clearAllCache() {
+    _apiResponseCache.clear();
+    _cachedLiveExamPool = null;
+    _resolvedBaseUrl = null;
+    debugPrint('🧹 ApiService: All in-memory API caches cleared.');
+  }
+
+  /// Initialize server configuration by probing live URLs and fetching active settings
   static Future<void> initServerConfig() async {
+    clearAllCache();
     for (final base in candidateBaseUrls) {
       try {
         final uri = Uri.parse('$base/settings');
-        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 1500));
+        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 6));
         if (response.statusCode == 200) {
           _resolvedBaseUrl = base;
           final decoded = json.decode(response.body);
@@ -44,7 +52,7 @@ class ApiService {
   static void _checkAndApplyServerMode(Map<String, dynamic> data, {String? currentCandidate}) {
     if (currentCandidate != null) {
       _resolvedBaseUrl = currentCandidate;
-      debugPrint('📢 Active Server Base URL (Local Mode): $_resolvedBaseUrl');
+      debugPrint('📢 Active Server Base URL: $_resolvedBaseUrl');
       return;
     }
   }
@@ -60,6 +68,12 @@ class ApiService {
     };
     if (_authToken != null && _authToken!.isNotEmpty) {
       headers['Authorization'] = 'Bearer $_authToken';
+    }
+    if (_activeSessionId != null && _activeSessionId!.isNotEmpty) {
+      headers['X-Session-ID'] = _activeSessionId!;
+    }
+    if (_activeClientPhone != null && _activeClientPhone!.isNotEmpty) {
+      headers['X-Client-Phone'] = _activeClientPhone!;
     }
     return headers;
   }
@@ -96,7 +110,7 @@ class ApiService {
     if (_resolvedBaseUrl != null) {
       try {
         final uri = Uri.parse('$_resolvedBaseUrl$endpoint').replace(queryParameters: queryParameters);
-        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 3));
+        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 8));
         if (response.statusCode == 200) {
           if (useCache) _apiResponseCache[cacheKey] = response;
           return response;
@@ -109,7 +123,7 @@ class ApiService {
     for (final base in candidateBaseUrls) {
       try {
         final uri = Uri.parse('$base$endpoint').replace(queryParameters: queryParameters);
-        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 1500));
+        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 8));
         if (response.statusCode == 200) {
           _resolvedBaseUrl = base;
           if (useCache) _apiResponseCache[cacheKey] = response;
@@ -130,7 +144,7 @@ class ApiService {
         final uri = Uri.parse('$_resolvedBaseUrl$endpoint');
         final response = await http
             .post(uri, headers: defaultHeaders, body: json.encode(body))
-            .timeout(const Duration(seconds: 3));
+            .timeout(const Duration(seconds: 8));
         if (response.statusCode == 200 || response.statusCode == 201) return response;
       } catch (_) {
         _resolvedBaseUrl = null;
@@ -142,7 +156,7 @@ class ApiService {
         final uri = Uri.parse('$base$endpoint');
         final response = await http
             .post(uri, headers: defaultHeaders, body: json.encode(body))
-            .timeout(const Duration(milliseconds: 1500));
+            .timeout(const Duration(seconds: 8));
         if (response.statusCode == 200 || response.statusCode == 201) {
           _resolvedBaseUrl = base;
           debugPrint('Active API Base URL resolved: $base');
@@ -160,7 +174,7 @@ class ApiService {
     if (_resolvedBaseUrl != null) {
       try {
         final uri = Uri.parse('$_resolvedBaseUrl$endpoint');
-        final response = await http.delete(uri, headers: defaultHeaders).timeout(const Duration(seconds: 3));
+        final response = await http.delete(uri, headers: defaultHeaders).timeout(const Duration(seconds: 8));
         if (response.statusCode == 200 || response.statusCode == 204) return response;
       } catch (_) {
         _resolvedBaseUrl = null;
@@ -170,7 +184,7 @@ class ApiService {
     for (final base in candidateBaseUrls) {
       try {
         final uri = Uri.parse('$base$endpoint');
-        final response = await http.delete(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 1500));
+        final response = await http.delete(uri, headers: defaultHeaders).timeout(const Duration(seconds: 8));
         if (response.statusCode == 200 || response.statusCode == 204) {
           _resolvedBaseUrl = base;
           debugPrint('Active API Base URL resolved: $base');
@@ -717,9 +731,13 @@ class ApiService {
   // 📌 11. Support & Live Chat API
   // ─────────────────────────────────────────────────────
   /// GET /api/v1/support/messages
-  static Future<List<dynamic>> fetchSupportMessages() async {
+  static Future<List<dynamic>> fetchSupportMessages({String? sessionId, String? phone}) async {
     try {
-      final response = await _getWithFallback('/support/messages');
+      final queryParams = <String, String>{};
+      if (sessionId != null && sessionId.isNotEmpty) queryParams['session_id'] = sessionId;
+      if (phone != null && phone.isNotEmpty) queryParams['phone'] = phone;
+
+      final response = await _getWithFallback('/support/messages', queryParameters: queryParams.isNotEmpty ? queryParams : null);
       return _extractList(response);
     } catch (e) {
       debugPrint('Error fetching support messages: $e');
@@ -728,9 +746,38 @@ class ApiService {
   }
 
   /// POST /api/v1/support/messages
-  static Future<bool> sendSupportMessage(String message) async {
+  static Future<bool> sendSupportMessage({
+    required String message,
+    String? sessionId,
+    String? phone,
+    String? firstName,
+    String? lastName,
+    String? attachmentPath,
+  }) async {
     try {
-      final response = await _postWithFallback('/support/messages', {'message': message});
+      final payload = <String, dynamic>{
+        'message': message,
+        if (sessionId != null && sessionId.isNotEmpty) ...{
+          'session_id': sessionId,
+          'sessionId': sessionId,
+        },
+        if (phone != null && phone.isNotEmpty) ...{
+          'phone': phone,
+          'phoneNumber': phone,
+          'phone_number': phone,
+          'mobile': phone,
+        },
+        if (firstName != null && firstName.isNotEmpty) ...{
+          'first_name': firstName,
+          'firstName': firstName,
+        },
+        if (lastName != null && lastName.isNotEmpty) ...{
+          'last_name': lastName,
+          'lastName': lastName,
+        },
+        if (attachmentPath != null && attachmentPath.isNotEmpty) 'attachment_path': attachmentPath,
+      };
+      final response = await _postWithFallback('/support/messages', payload);
       return response != null && (response.statusCode == 200 || response.statusCode == 201);
     } catch (e) {
       debugPrint('Error sending support message: $e');
@@ -1016,30 +1063,50 @@ class ApiService {
   }) async {
     final payload = {
       'first_name': firstName,
+      'firstName': firstName,
       'last_name': lastName,
+      'lastName': lastName,
       'phone': phone,
-      if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
+      'phoneNumber': phone,
+      'phone_number': phone,
+      'mobile': phone,
+      if (sessionId != null && sessionId.isNotEmpty) ...{
+        'session_id': sessionId,
+        'sessionId': sessionId,
+      },
     };
 
-    // 1. Try /client/verify with dynamic multi-host fallback
-    final response = await _postWithFallback('/client/verify', payload);
-    if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
+    setSessionContext(sessionId: sessionId, phone: phone);
+
+    // 1. Try /support/register (Primary endpoint per API guide)
+    final resp1 = await _postWithFallback('/support/register', payload);
+    if (resp1 != null && (resp1.statusCode == 200 || resp1.statusCode == 201)) {
       try {
-        final decoded = json.decode(response.body);
-        if (decoded is Map<String, dynamic>) return decoded;
+        final decoded = json.decode(resp1.body);
+        if (decoded is Map<String, dynamic>) {
+          if (decoded['token'] != null) {
+            setAuthToken(decoded['token'].toString());
+          }
+          return decoded;
+        }
       } catch (e) {
-        debugPrint('Error decoding /client/verify response: $e');
+        debugPrint('Error decoding /support/register response: $e');
       }
     }
 
-    // 2. Fallback to /support/register
-    final resp2 = await _postWithFallback('/support/register', payload);
+    // 2. Fallback to /client/verify
+    final resp2 = await _postWithFallback('/client/verify', payload);
     if (resp2 != null && (resp2.statusCode == 200 || resp2.statusCode == 201)) {
       try {
         final decoded = json.decode(resp2.body);
-        if (decoded is Map<String, dynamic>) return decoded;
+        if (decoded is Map<String, dynamic>) {
+          if (decoded['token'] != null) {
+            setAuthToken(decoded['token'].toString());
+          }
+          return decoded;
+        }
       } catch (e) {
-        debugPrint('Error decoding /support/register response: $e');
+        debugPrint('Error decoding /client/verify response: $e');
       }
     }
 
@@ -1053,14 +1120,21 @@ class ApiService {
       if (sessionId != null && sessionId.isNotEmpty) queryParams['session_id'] = sessionId;
       if (phone != null && phone.isNotEmpty) queryParams['phone'] = phone;
 
-      final response = await _getWithFallback('/chat/messages', queryParameters: queryParams);
+      // 1. Primary: /support/messages
+      final response = await _getWithFallback('/support/messages', queryParameters: queryParams.isNotEmpty ? queryParams : null);
       if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
         return _extractList(response);
+      }
+
+      // 2. Fallback: /chat/messages
+      final resp2 = await _getWithFallback('/chat/messages', queryParameters: queryParams.isNotEmpty ? queryParams : null);
+      if (resp2 != null && (resp2.statusCode == 200 || resp2.statusCode == 201)) {
+        return _extractList(resp2);
       }
     } catch (e) {
       debugPrint('Error fetching chat messages: $e');
     }
-    return fetchSupportMessages();
+    return [];
   }
 
   /// Send live chat message from client
@@ -1073,23 +1147,44 @@ class ApiService {
     String? attachmentPath,
   ]) async {
     try {
-      final payload = {
+      final payload = <String, dynamic>{
         'message': message,
-        if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
-        if (phone != null && phone.isNotEmpty) 'phone': phone,
-        if (firstName != null && firstName.isNotEmpty) 'first_name': firstName,
-        if (lastName != null && lastName.isNotEmpty) 'last_name': lastName,
+        if (sessionId != null && sessionId.isNotEmpty) ...{
+          'session_id': sessionId,
+          'sessionId': sessionId,
+        },
+        if (phone != null && phone.isNotEmpty) ...{
+          'phone': phone,
+          'phoneNumber': phone,
+          'phone_number': phone,
+          'mobile': phone,
+        },
+        if (firstName != null && firstName.isNotEmpty) ...{
+          'first_name': firstName,
+          'firstName': firstName,
+        },
+        if (lastName != null && lastName.isNotEmpty) ...{
+          'last_name': lastName,
+          'lastName': lastName,
+        },
         if (attachmentPath != null && attachmentPath.isNotEmpty) 'attachment_path': attachmentPath,
       };
 
-      final response = await _postWithFallback('/chat/messages', payload);
+      // 1. Primary: /support/messages
+      final response = await _postWithFallback('/support/messages', payload);
       if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
+        return true;
+      }
+
+      // 2. Fallback: /chat/messages
+      final resp2 = await _postWithFallback('/chat/messages', payload);
+      if (resp2 != null && (resp2.statusCode == 200 || resp2.statusCode == 201)) {
         return true;
       }
     } catch (e) {
       debugPrint('Error sending chat message: $e');
     }
-    return sendSupportMessage(message);
+    return false;
   }
 
   /// Activate client license when customer clicks Attiva Licenza button in chat

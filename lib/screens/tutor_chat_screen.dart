@@ -49,7 +49,6 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
   bool _isInitialLoading = true;
   bool _isVerified = false;
   bool _isActive = false;
-  bool _isLoading = false;
   bool _isSubmittingVerification = false;
   bool _isUploadingAttachment = false;
   File? _selectedAttachmentFile;
@@ -81,6 +80,7 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     String lastName = (prefs.getString('app_client_last_name') ?? '').trim();
     _sessionId = prefs.getString('app_client_session_id') ?? 'app_${DateTime.now().millisecondsSinceEpoch}';
     _isActive = prefs.getBool('app_client_is_active') ?? false;
+    final bool isLocallyVerified = prefs.getBool('app_client_is_verified') ?? false;
 
     // Clean up any legacy dummy defaults
     if (firstName.toLowerCase() == 'customer' && (lastName.toLowerCase() == 'user' || lastName.isEmpty)) {
@@ -88,71 +88,29 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
       lastName = '';
       await prefs.remove('app_client_first_name');
       await prefs.remove('app_client_last_name');
+      await prefs.remove('app_client_is_verified');
     }
 
     if (_sessionId.isNotEmpty) {
       await prefs.setString('app_client_session_id', _sessionId);
     }
 
+    final savedToken = prefs.getString('app_client_token');
+    if (savedToken != null && savedToken.isNotEmpty) {
+      ApiService.setAuthToken(savedToken);
+    }
+    ApiService.setSessionContext(sessionId: _sessionId, phone: _userPhone);
+
     _firstNameController.text = firstName;
     _lastNameController.text = lastName;
     _phoneController.text = _userPhone;
 
-    final statusData = await ApiService.fetchClientStatus(sessionId: _sessionId, phone: _userPhone);
-    if (!mounted) return;
-
-    if (statusData != null) {
-      final isServerActive = statusData['is_active'] == true;
-      final sFirstName = (statusData['first_name'] ?? '').toString().trim();
-      final sLastName = (statusData['last_name'] ?? '').toString().trim();
-      final sPhone = (statusData['phone'] ?? '').toString().trim();
-
-      final effectivePhone = sPhone.isNotEmpty ? sPhone : _userPhone;
-      final effectiveFirstName = sFirstName.isNotEmpty ? sFirstName : firstName;
-      final effectiveLastName = sLastName.isNotEmpty ? sLastName : lastName;
-
-      // Only consider verified if we have actual customer details (First Name, Last Name, and Phone)
-      final bool hasFullDetails = effectiveFirstName.isNotEmpty &&
-          effectiveLastName.isNotEmpty &&
-          effectivePhone.isNotEmpty &&
-          effectiveFirstName.toLowerCase() != 'customer';
-
-      if (hasFullDetails) {
-        await prefs.setString('app_client_first_name', effectiveFirstName);
-        await prefs.setString('app_client_last_name', effectiveLastName);
-        await prefs.setString('app_client_phone', effectivePhone);
-        await prefs.setBool('app_client_is_active', isServerActive);
-
-        _firstNameController.text = effectiveFirstName;
-        _lastNameController.text = effectiveLastName;
-        _phoneController.text = effectivePhone;
-
-        setState(() {
-          _userPhone = effectivePhone;
-          _userName = '$effectiveFirstName $effectiveLastName'.trim();
-          _isActive = isServerActive;
-          _isVerified = true;
-          _isInitialLoading = false;
-        });
-
-        _startChatPolling();
-        return;
-      } else {
-        await prefs.setBool('app_client_is_active', isServerActive);
-        setState(() {
-          _userPhone = effectivePhone;
-          _isActive = isServerActive;
-          _isVerified = false;
-          _isInitialLoading = false;
-        });
-        return;
-      }
-    }
-
-    final bool hasValidLocalInfo = _userPhone.isNotEmpty &&
-        firstName.isNotEmpty &&
-        lastName.isNotEmpty &&
-        firstName.toLowerCase() != 'customer';
+    // Instant UI rendering (0ms delay) using local storage
+    final bool hasValidLocalInfo = isLocallyVerified ||
+        (_userPhone.isNotEmpty &&
+            firstName.isNotEmpty &&
+            lastName.isNotEmpty &&
+            firstName.toLowerCase() != 'customer');
 
     if (hasValidLocalInfo) {
       setState(() {
@@ -168,6 +126,53 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
         _isInitialLoading = false;
       });
     }
+
+    // Refresh status from server asynchronously in the background without blocking UI
+    ApiService.fetchClientStatus(sessionId: _sessionId, phone: _userPhone).then((statusData) async {
+      if (!mounted || statusData == null) return;
+      final isServerActive = statusData['is_active'] == true;
+      final sFirstName = (statusData['first_name'] ?? '').toString().trim();
+      final sLastName = (statusData['last_name'] ?? '').toString().trim();
+      final sPhone = (statusData['phone'] ?? '').toString().trim();
+
+      final effectivePhone = sPhone.isNotEmpty ? sPhone : _userPhone;
+      final effectiveFirstName = sFirstName.isNotEmpty ? sFirstName : firstName;
+      final effectiveLastName = sLastName.isNotEmpty ? sLastName : lastName;
+
+      final bool hasFullDetails = effectiveFirstName.isNotEmpty &&
+          effectiveLastName.isNotEmpty &&
+          effectivePhone.isNotEmpty &&
+          effectiveFirstName.toLowerCase() != 'customer';
+
+      if (hasFullDetails) {
+        await prefs.setString('app_client_first_name', effectiveFirstName);
+        await prefs.setString('app_client_last_name', effectiveLastName);
+        await prefs.setString('app_client_phone', effectivePhone);
+        await prefs.setBool('app_client_is_active', isServerActive);
+        await prefs.setBool('app_client_is_verified', true);
+
+        if (mounted) {
+          _firstNameController.text = effectiveFirstName;
+          _lastNameController.text = effectiveLastName;
+          _phoneController.text = effectivePhone;
+          setState(() {
+            _userPhone = effectivePhone;
+            _userName = '$effectiveFirstName $effectiveLastName'.trim();
+            _isActive = isServerActive;
+            _isVerified = true;
+          });
+        }
+      } else {
+        await prefs.setBool('app_client_is_active', isServerActive);
+        if (mounted) {
+          setState(() {
+            _isActive = isServerActive;
+          });
+        }
+      }
+    }).catchError((e) {
+      debugPrint('Background client status check error: $e');
+    });
   }
 
   void _startChatPolling() {
@@ -229,7 +234,6 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     if (loaded.isNotEmpty || _messages.isEmpty) {
       setState(() {
         _messages = loaded;
-        _isLoading = false;
       });
     }
 
@@ -254,10 +258,12 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     await prefs.setString('app_client_first_name', fName);
     await prefs.setString('app_client_last_name', lName);
     await prefs.setString('app_client_phone', phone);
+    await prefs.setBool('app_client_is_verified', true);
     if (_sessionId.isEmpty) {
       _sessionId = 'app_${DateTime.now().millisecondsSinceEpoch}';
     }
     await prefs.setString('app_client_session_id', _sessionId);
+    ApiService.setSessionContext(sessionId: _sessionId, phone: phone);
 
     Map<String, dynamic>? res;
     try {
@@ -290,7 +296,7 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
         }
       }
 
-      final alreadySentKey = 'joined_msg_sent_${_sessionId}';
+      final alreadySentKey = 'joined_msg_sent_$_sessionId';
       if (prefs.getBool(alreadySentKey) != true) {
         await ApiService.sendChatMessage(
           'হ্যালো! আমি অ্যাপ থেকে চ্যাটে যুক্ত হয়েছি',

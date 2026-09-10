@@ -81,7 +81,10 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
     });
   }
 
-  void _clearAllData() {
+  void _clearAllData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+    ApiService.clearAllCache();
     setState(() {
       _soundEnabled = true;
       widget.onThemeChanged(false); // Default to Light Theme
