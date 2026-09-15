@@ -396,148 +396,160 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
 
   // --- Custom Floating Bottom Navigation Bar ---
 
-  // --- Custom Floating Bottom Navigation Bar (5-Button Layout Matching Reference App) ---
+  // --- Bottom Navigation Bar (Docked flush at bottom of screen, 0 gap) ---
 
-  Widget _buildFloatingBottomBar(bool isDark) {
+  Widget _buildDockedBottomBar(bool isDark) {
     return Container(
-      height: 58,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E293B).withOpacity(0.96) : Colors.white.withOpacity(0.96),
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(
-          color: isDark ? Colors.white.withOpacity(0.08) : Colors.grey.shade200,
-          width: 1,
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(22),
+          topRight: Radius.circular(22),
         ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(isDark ? 0.35 : 0.08),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
+            blurRadius: 14,
+            offset: const Offset(0, -3),
           ),
         ],
+        border: Border(
+          top: BorderSide(
+            color: isDark ? Colors.white.withOpacity(0.08) : Colors.grey.shade200,
+            width: 1,
+          ),
+        ),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          // Button 1: Stats / Ranking / Performance (Bar chart icon from reference screenshot)
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: _navigateToProfile,
-              borderRadius: BorderRadius.circular(20),
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Container(width: 4, height: 12, decoration: BoxDecoration(color: const Color(0xFFFF7043), borderRadius: BorderRadius.circular(2))),
-                    const SizedBox(width: 2.5),
-                    Container(width: 4, height: 18, decoration: BoxDecoration(color: const Color(0xFFFFA726), borderRadius: BorderRadius.circular(2))),
-                    const SizedBox(width: 2.5),
-                    Container(width: 4, height: 14, decoration: BoxDecoration(color: const Color(0xFF42A5F5), borderRadius: BorderRadius.circular(2))),
-                    const SizedBox(width: 2.5),
-                    Container(width: 4, height: 22, decoration: BoxDecoration(color: const Color(0xFF66BB6A), borderRadius: BorderRadius.circular(2))),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          // Button 2: Theme Toggle (Dark circle with moon/sun from screenshot)
-          InkWell(
-            onTap: () => widget.onThemeChanged(!widget.isDark),
-            borderRadius: BorderRadius.circular(22),
-            child: Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF2E3B5E), Color(0xFF151B26)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                border: Border.all(
-                  color: Colors.white.withOpacity(0.15),
-                  width: 1,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
+      child: SafeArea(
+        top: false,
+        bottom: true,
+        child: Container(
+          height: 60,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Button 1: Stats / Ranking / Performance (Bar chart icon)
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: _navigateToProfile,
+                  borderRadius: BorderRadius.circular(20),
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Container(width: 4, height: 12, decoration: BoxDecoration(color: const Color(0xFFFF7043), borderRadius: BorderRadius.circular(2))),
+                        const SizedBox(width: 2.5),
+                        Container(width: 4, height: 18, decoration: BoxDecoration(color: const Color(0xFFFFA726), borderRadius: BorderRadius.circular(2))),
+                        const SizedBox(width: 2.5),
+                        Container(width: 4, height: 14, decoration: BoxDecoration(color: const Color(0xFF42A5F5), borderRadius: BorderRadius.circular(2))),
+                        const SizedBox(width: 2.5),
+                        Container(width: 4, height: 22, decoration: BoxDecoration(color: const Color(0xFF66BB6A), borderRadius: BorderRadius.circular(2))),
+                      ],
+                    ),
                   ),
-                ],
-              ),
-              child: Center(
-                child: Icon(
-                  widget.isDark ? Icons.light_mode_rounded : Icons.nights_stay_rounded,
-                  color: widget.isDark ? const Color(0xFFFFD700) : const Color(0xFFFFF176),
-                  size: 20,
                 ),
               ),
-            ),
-          ),
 
-          // Button 3: Dictionary Search
-          IconButton(
-            icon: Icon(
-              Icons.search_rounded,
-              color: isDark ? Colors.white70 : Colors.grey.shade700,
-              size: 26,
-            ),
-            onPressed: _navigateToDictionary,
-            tooltip: 'ডিকশনারি খুঁজুন',
-          ),
-
-          // Button 4: QR Scanner
-          IconButton(
-            icon: Icon(
-              Icons.qr_code_scanner_rounded,
-              color: isDark ? Colors.white70 : Colors.grey.shade700,
-              size: 24,
-            ),
-            onPressed: _showQRScannerDemo,
-            tooltip: 'QR স্ক্যানার',
-          ),
-
-          // Button 5: HOW TO Badge (from screenshot)
-          GestureDetector(
-            onTap: _showHelpBottomSheet,
-            child: Container(
-              width: 44,
-              height: 32,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFFF8A65), Color(0xFFFF5252)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFFFF5252).withOpacity(0.25),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
+              // Button 2: Theme Toggle (Dark circle with moon/sun)
+              InkWell(
+                onTap: () => widget.onThemeChanged(!widget.isDark),
+                borderRadius: BorderRadius.circular(22),
+                child: Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF2E3B5E), Color(0xFF151B26)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.15),
+                      width: 1,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              child: const Text(
-                'HOW\nTO?',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 7.5,
-                  fontWeight: FontWeight.w900,
-                  height: 1.1,
+                  child: Center(
+                    child: Icon(
+                      widget.isDark ? Icons.light_mode_rounded : Icons.nights_stay_rounded,
+                      color: widget.isDark ? const Color(0xFFFFD700) : const Color(0xFFFFF176),
+                      size: 20,
+                    ),
+                  ),
                 ),
-                textAlign: TextAlign.center,
               ),
-            ),
+
+              // Button 3: Dictionary Search
+              IconButton(
+                icon: Icon(
+                  Icons.search_rounded,
+                  color: isDark ? Colors.white70 : Colors.grey.shade700,
+                  size: 26,
+                ),
+                onPressed: _navigateToDictionary,
+                tooltip: 'ডিকশনারি খুঁজুন',
+              ),
+
+              // Button 4: QR Scanner
+              IconButton(
+                icon: Icon(
+                  Icons.qr_code_scanner_rounded,
+                  color: isDark ? Colors.white70 : Colors.grey.shade700,
+                  size: 24,
+                ),
+                onPressed: _showQRScannerDemo,
+                tooltip: 'QR স্ক্যানার',
+              ),
+
+              // Button 5: HOW TO Badge
+              GestureDetector(
+                onTap: _showHelpBottomSheet,
+                child: Container(
+                  width: 44,
+                  height: 32,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFF8A65), Color(0xFFFF5252)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFFF5252).withOpacity(0.25),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Text(
+                    'HOW\nTO?',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 7.5,
+                      fontWeight: FontWeight.w900,
+                      height: 1.1,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -567,8 +579,6 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final double bottomInset = MediaQuery.of(context).padding.bottom;
-    final double floatingBottomOffset = bottomInset > 0 ? (bottomInset + 6) : 12;
 
     return Scaffold(
       appBar: null, // Hide AppBar on home screen to let sticky header go all the way up
@@ -604,12 +614,12 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
             ),
           ),
 
-          // Floating Action Navigation Bar
+          // Docked Bottom Navigation Bar (No gap below, sits flush at the bottom of any device)
           Positioned(
-            bottom: floatingBottomOffset,
-            left: 18,
-            right: 18,
-            child: _buildFloatingBottomBar(isDark),
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: _buildDockedBottomBar(isDark),
           ),
         ],
       ),
