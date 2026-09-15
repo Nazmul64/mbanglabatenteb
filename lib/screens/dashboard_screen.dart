@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../models/slider_model.dart';
+import '../models/home_card_model.dart';
 import 'triangle_pattern_painter.dart';
 import 'card_illustrations.dart';
 
@@ -52,7 +53,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  List<dynamic> _apiCards = [];
+  List<HomeCardModel> _homeCards = [];
   bool _isLoadingCards = true;
 
   @override
@@ -62,12 +63,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _fetchCards() async {
-    final cards = await ApiService.fetchDashboardCards();
-    if (mounted) {
-      setState(() {
-        _apiCards = cards;
-        _isLoadingCards = false;
-      });
+    try {
+      final cards = await ApiService.fetchHomeCards();
+      if (mounted) {
+        setState(() {
+          _homeCards = cards;
+          _isLoadingCards = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching home cards: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingCards = false;
+        });
+      }
     }
     // Silently pre-warm Argomenti, Cartelli and Exam caches for instantaneous 100% fast response
     ApiService.fetchChapters().catchError((_) => <dynamic>[]);
@@ -245,20 +255,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
             // Scrollable Content (Banner + Dynamic Cards Grid)
             Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Custom Auto-Sliding Image Banner (Slider)
-                    const ImageSlider(),
+              child: RefreshIndicator(
+                onRefresh: _fetchCards,
+                color: const Color(0xFF4CAF50),
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Custom Auto-Sliding Image Banner (Slider)
+                      const ImageSlider(),
 
-                    // Dynamic Grid of Services from API
-                    Padding(
-                      padding: EdgeInsets.fromLTRB(20, 16, 20, 95 + bottomInset),
-                      child: _buildDynamicCardsGrid(isDark),
-                    ),
-                  ],
+                      // Dynamic Grid of Services from API
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(20, 16, 20, 95 + bottomInset),
+                        child: _buildDynamicCardsGrid(isDark),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -324,45 +338,52 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildDynamicCardsGrid(bool isDark) {
-    final List<Map<String, dynamic>> defaultCards = [
-      {'title': 'LEZIONI', 'subtitle': 'ক্লাস ভিডিও', 'screen_key': 'lezioni', 'icon_class': 'fa-solid fa-video'},
-      {'title': 'TEST', 'subtitle': 'অনুশীলন টেস্ট', 'screen_key': 'test', 'icon_class': 'fa-solid fa-laptop-code'},
-      {'title': 'ARGOMENTI', 'subtitle': 'অধ্যায়সমূহ', 'screen_key': 'argomenti', 'icon_class': 'fa-solid fa-graduation-cap'},
-      {'title': 'E-CLASS', 'subtitle': 'অনলাইন ক্লাস', 'screen_key': 'eclass', 'icon_class': 'fa-solid fa-chalkboard-user'},
-      {'title': 'SFIDA', 'subtitle': 'চ্যালেঞ্জ', 'screen_key': 'sfida', 'icon_class': 'fa-solid fa-trophy'},
-      {'title': 'SCHEDA ESAME', 'subtitle': 'পরীক্ষার শিট', 'screen_key': 'scheda-esame', 'icon_class': 'fa-solid fa-file-signature'},
-      {'title': 'WORD', 'subtitle': 'শব্দ তালিকা', 'screen_key': 'word', 'icon_class': 'fa-solid fa-book-open'},
-      {'title': 'CARTELLI', 'subtitle': 'ট্রাফিক সাইন', 'screen_key': 'cartelli', 'icon_class': 'fa-solid fa-map-signs'},
-      {'title': 'SAVED MCQS', 'subtitle': 'সেভ করা এমসিকিউ', 'screen_key': 'saved-mcqs', 'icon_class': 'fa-solid fa-bookmark'},
-      {'title': 'NOTED MCQS', 'subtitle': 'নোট করা এমসিকিউ', 'screen_key': 'noted-mcqs', 'icon_class': 'fa-regular fa-note-sticky'},
-      {'title': 'CORRECT MCQS', 'subtitle': 'সঠিক এমসিকিউ', 'screen_key': 'correct-mcqs', 'icon_class': 'fa-solid fa-circle-check'},
-      {'title': 'WRONG MCQS', 'subtitle': 'ভুল এমসিকিউ', 'screen_key': 'wrong-mcqs', 'icon_class': 'fa-solid fa-circle-xmark'},
-      {'title': 'SUPPORT', 'subtitle': 'লাইভ চ্যাট', 'screen_key': 'support', 'icon_class': 'fa-solid fa-headset'},
-      {'title': 'TOP PERFORMERS', 'subtitle': 'সেরা শিক্ষার্থী র‍্যাংকিং', 'screen_key': 'top-performers', 'icon_class': 'fa-solid fa-ranking-star'},
-      {'title': 'MANUALE', 'subtitle': 'ম্যানুয়াল থিওরি বই', 'screen_key': 'manuale', 'icon_class': 'fa-solid fa-book-bookmark'},
-      {'title': 'PATENTE SOCIAL', 'subtitle': 'কমিউনিটি সোশ্যাল ফিড', 'screen_key': 'patente-social', 'icon_class': 'fa-solid fa-users'},
-      {'title': 'TRANSLATION', 'subtitle': 'অনুবাদ ও সঠিক উচ্চারণ', 'screen_key': 'translation', 'icon_class': 'fa-solid fa-language'},
-      {'title': 'DIZIONARIO', 'subtitle': 'অভিধান', 'screen_key': 'dictionary', 'icon_class': 'fa-solid fa-book-bookmark'},
+    final List<HomeCardModel> defaultCards = [
+      HomeCardModel(id: 1, title: 'LEZIONI', subtitle: 'ক্লাস ভিডিও', screenKey: 'lezioni', iconClass: 'fa-solid fa-video', orderIndex: 1, isActive: true),
+      HomeCardModel(id: 2, title: 'TEST', subtitle: 'অনুশীলন টেস্ট', screenKey: 'test', iconClass: 'fa-solid fa-laptop-code', orderIndex: 2, isActive: true),
+      HomeCardModel(id: 3, title: 'ARGOMENTI', subtitle: 'অধ্যায়সমূহ', screenKey: 'argomenti', iconClass: 'fa-solid fa-graduation-cap', orderIndex: 3, isActive: true),
+      HomeCardModel(id: 4, title: 'E-CLASS', subtitle: 'অনলাইন ক্লাস', screenKey: 'eclass', iconClass: 'fa-solid fa-chalkboard-user', orderIndex: 4, isActive: true),
+      HomeCardModel(id: 5, title: 'SFIDA', subtitle: 'চ্যালেঞ্জ', screenKey: 'sfida', iconClass: 'fa-solid fa-trophy', orderIndex: 5, isActive: true),
+      HomeCardModel(id: 6, title: 'SCHEDA ESAME', subtitle: 'পরীক্ষার শিট', screenKey: 'scheda-esame', iconClass: 'fa-solid fa-file-signature', orderIndex: 6, isActive: true),
+      HomeCardModel(id: 7, title: 'WORD', subtitle: 'শব্দ তালিকা', screenKey: 'word', iconClass: 'fa-solid fa-book-open', orderIndex: 7, isActive: true),
+      HomeCardModel(id: 8, title: 'CARTELLI', subtitle: 'ট্রাফিক সাইন', screenKey: 'cartelli', iconClass: 'fa-solid fa-map-signs', orderIndex: 8, isActive: true),
+      HomeCardModel(id: 9, title: 'SAVED MCQS', subtitle: 'সেভ করা এমসিকিউ', screenKey: 'saved-mcqs', iconClass: 'fa-solid fa-bookmark', orderIndex: 9, isActive: true),
+      HomeCardModel(id: 10, title: 'NOTED MCQS', subtitle: 'নোট করা এমসিকিউ', screenKey: 'noted-mcqs', iconClass: 'fa-regular fa-note-sticky', orderIndex: 10, isActive: true),
+      HomeCardModel(id: 11, title: 'CORRECT MCQS', subtitle: 'সঠিক এমসিকিউ', screenKey: 'correct-mcqs', iconClass: 'fa-solid fa-circle-check', orderIndex: 11, isActive: true),
+      HomeCardModel(id: 12, title: 'WRONG MCQS', subtitle: 'ভুল এমসিকিউ', screenKey: 'wrong-mcqs', iconClass: 'fa-solid fa-circle-xmark', orderIndex: 12, isActive: true),
+      HomeCardModel(id: 13, title: 'SUPPORT', subtitle: 'লাইভ চ্যাট', screenKey: 'support', iconClass: 'fa-solid fa-headset', orderIndex: 13, isActive: true),
+      HomeCardModel(id: 14, title: 'TOP PERFORMERS', subtitle: 'সেরা শিক্ষার্থী র‍্যাংকিং', screenKey: 'top-performers', iconClass: 'fa-solid fa-ranking-star', orderIndex: 14, isActive: true),
+      HomeCardModel(id: 15, title: 'MANUALE', subtitle: 'ম্যানুয়াল থিওরি বই', screenKey: 'manuale', iconClass: 'fa-solid fa-book-bookmark', orderIndex: 15, isActive: true),
+      HomeCardModel(id: 16, title: 'PATENTE SOCIAL', subtitle: 'কমিউনিটি সোশ্যাল ফিড', screenKey: 'patente-social', iconClass: 'fa-solid fa-users', orderIndex: 16, isActive: true),
+      HomeCardModel(id: 17, title: 'TRANSLATION', subtitle: 'অনুবাদ ও সঠিক উচ্চারণ', screenKey: 'translation', iconClass: 'fa-solid fa-language', orderIndex: 17, isActive: true),
+      HomeCardModel(id: 18, title: 'DIZIONARIO', subtitle: 'অভিধান', screenKey: 'dictionary', iconClass: 'fa-solid fa-book-bookmark', orderIndex: 18, isActive: true),
     ];
 
-    final List<Map<String, dynamic>> cardList = _apiCards.isNotEmpty
-        ? _apiCards.cast<Map<String, dynamic>>()
+    final List<HomeCardModel> activeCards = _homeCards.isNotEmpty
+        ? _homeCards.where((c) => c.isActive).toList()
         : defaultCards;
 
-    final List<Widget> rows = [];
-    for (int i = 0; i < cardList.length; i += 2) {
-      final item1 = cardList[i];
-      final item2 = (i + 1 < cardList.length) ? cardList[i + 1] : null;
+    // Strict ascending order by orderIndex
+    activeCards.sort((a, b) {
+      final comp = a.orderIndex.compareTo(b.orderIndex);
+      if (comp != 0) return comp;
+      return a.id.compareTo(b.id);
+    });
 
-      final title1 = (item1['title']?.toString() ?? '').toUpperCase();
-      final screenKey1 = item1['screen_key']?.toString() ?? '';
-      final rawSubtitle1 = item1['subtitle']?.toString() ?? '';
+    final List<Widget> rows = [];
+    for (int i = 0; i < activeCards.length; i += 2) {
+      final card1 = activeCards[i];
+      final card2 = (i + 1 < activeCards.length) ? activeCards[i + 1] : null;
+
+      final title1 = card1.title.toUpperCase();
+      final screenKey1 = card1.screenKey;
+      final rawSubtitle1 = card1.subtitle ?? '';
       final subtitle1 = _resolveSubtitle(rawSubtitle1, screenKey1, title1);
 
-      final String? title2 = item2 != null ? (item2['title']?.toString() ?? '').toUpperCase() : null;
-      final String screenKey2 = item2 != null ? (item2['screen_key']?.toString() ?? '') : '';
-      final String rawSubtitle2 = item2 != null ? (item2['subtitle']?.toString() ?? '') : '';
-      final String? subtitle2 = item2 != null ? _resolveSubtitle(rawSubtitle2, screenKey2, title2 ?? '') : null;
+      final String? title2 = card2?.title.toUpperCase();
+      final String screenKey2 = card2?.screenKey ?? '';
+      final String rawSubtitle2 = card2?.subtitle ?? '';
+      final String? subtitle2 = card2 != null ? _resolveSubtitle(rawSubtitle2, screenKey2, title2 ?? '') : null;
 
       rows.add(
         Row(
@@ -371,8 +392,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: _buildNavigationCard(
                 illustration: _getIllustrationForCard(
                   screenKey1,
-                  item1['icon_class']?.toString() ?? '',
-                  item1['icon_url']?.toString(),
+                  card1.iconClass,
+                  card1.iconUrl,
                   title1,
                 ),
                 title: title1,
@@ -383,12 +404,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             const SizedBox(width: 16),
             Expanded(
-              child: (item2 != null && title2 != null && subtitle2 != null)
+              child: (card2 != null && title2 != null && subtitle2 != null)
                   ? _buildNavigationCard(
                       illustration: _getIllustrationForCard(
                         screenKey2,
-                        item2['icon_class']?.toString() ?? '',
-                        item2['icon_url']?.toString(),
+                        card2.iconClass,
+                        card2.iconUrl,
                         title2,
                       ),
                       title: title2,
@@ -401,7 +422,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
       );
-      if (i + 2 < cardList.length) {
+      if (i + 2 < activeCards.length) {
         rows.add(const SizedBox(height: 16));
       }
     }

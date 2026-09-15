@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/slider_model.dart';
+import '../models/home_card_model.dart';
 
 class ApiService {
   static const List<String> candidateBaseUrls = [
@@ -886,12 +887,69 @@ class ApiService {
   }
 
   // ─────────────────────────────────────────────────────
-  // 📌 13. Patente Social API
+  // 📌 13. Drag & Drop Home Cards API & Patente Social
   // ─────────────────────────────────────────────────────
+  /// GET /api/v1/home-cards (sorted by order_index ASC)
+  static Future<List<HomeCardModel>> fetchHomeCards() async {
+    try {
+      final response = await _getWithFallback('/home-cards') ??
+          await _getWithFallback('/dashboard/cards') ??
+          await _getWithFallback('/patente-social/cards') ??
+          await _getWithFallback('/cards');
+
+      final list = _extractList(response);
+      if (list.isNotEmpty) {
+        final models = list.map((item) {
+          if (item is Map<String, dynamic>) {
+            return HomeCardModel.fromJson(item);
+          } else if (item is Map) {
+            return HomeCardModel.fromJson(Map<String, dynamic>.from(item));
+          }
+          return null;
+        }).whereType<HomeCardModel>().toList();
+
+        // Sort strictly by order_index ASC, then id ASC
+        models.sort((a, b) {
+          final comp = a.orderIndex.compareTo(b.orderIndex);
+          if (comp != 0) return comp;
+          return a.id.compareTo(b.id);
+        });
+
+        return models;
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching home cards: $e');
+      return [];
+    }
+  }
+
+  /// POST /api/v1/home-cards/reorder (Drag & drop bulk reorder sync)
+  static Future<bool> reorderHomeCards(List<int> cardIds) async {
+    try {
+      final response = await _postWithFallback('/home-cards/reorder', {
+        'orders': cardIds,
+      });
+      if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
+        final data = _extractMap(response);
+        if (data != null && (data['status'] == 'success' || data['success'] == true)) {
+          return true;
+        }
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('Error reordering home cards: $e');
+      return false;
+    }
+  }
+
   /// GET /api/v1/patente-social/cards
   static Future<List<dynamic>> fetchPatenteSocialCards() async {
     try {
-      final response = await _getWithFallback('/patente-social/cards') ?? await _getWithFallback('/dashboard/cards');
+      final response = await _getWithFallback('/home-cards') ??
+          await _getWithFallback('/patente-social/cards') ??
+          await _getWithFallback('/dashboard/cards');
       return _extractList(response);
     } catch (e) {
       debugPrint('Error fetching patente social cards: $e');
