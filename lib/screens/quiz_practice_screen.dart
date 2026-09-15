@@ -1307,14 +1307,41 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
                 _buildActionButton(
                   icon: Icons.edit_note_rounded,
                   label: 'নোট',
-                  color: Colors.grey.shade700,
+                  color: (quiz.studyNotes.isNotEmpty) ? const Color(0xFF10B981) : Colors.grey.shade700,
                   onTap: () {
                     showDialog(
                       context: context,
                       builder: (context) => QuestionNoteDialog(
                         questionId: quiz.id,
                         initialNote: quiz.studyNotes,
-                        onSave: (newNote) => setState(() => quiz.studyNotes = newNote),
+                        onSave: (newNote) async {
+                          setState(() => quiz.studyNotes = newNote);
+                          final mcq = McqQuestion(
+                            id: quiz.rawId != 0 ? quiz.rawId : (int.tryParse(quiz.id) ?? 0),
+                            chapter: widget.initialChapterId ?? 1,
+                            chapterName: widget.quizTitle,
+                            italian: quiz.italian,
+                            bangla: quiz.bangla,
+                            isVero: quiz.isVero,
+                            image: quiz.image,
+                            imagePosition: quiz.imagePosition,
+                            audio: quiz.audioUrl,
+                            vocabulary: quiz.vocabulary,
+                            userNote: newNote,
+                            giustoCount: quiz.giustoCount,
+                            sbagliatoCount: quiz.sbagliatoCount,
+                          );
+                          await BookmarkManager.saveNote(mcq, newNote, type: 'argomenti');
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(newNote.isNotEmpty ? 'নোট সফলভাবে সংরক্ষণ করা হয়েছে' : 'নোট মুছে ফেলা হয়েছে'),
+                                duration: const Duration(seconds: 2),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }
+                        },
                       ),
                     );
                   },

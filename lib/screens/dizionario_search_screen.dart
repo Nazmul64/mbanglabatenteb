@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import '../services/api_service.dart';
+import '../models/question_database.dart';
 import 'triangle_pattern_painter.dart';
 import 'image_zoom_dialog.dart';
 import 'quiz_practice_screen.dart';
@@ -85,23 +86,78 @@ class _DizionarioSearchScreenState extends State<DizionarioSearchScreen> {
       _hasSearched = true;
     });
 
+    final cleanQuery = query.trim().toLowerCase();
+    final cleanLetter = letter.trim().toUpperCase();
+    final List<Map<String, dynamic>> combinedResults = [];
+    final Set<String> seenWords = {};
+
     try {
+      // 1. Fetch from Server Dictionary Search API
       final res = await ApiService.searchDictionary(query: query, letter: letter);
       final List<dynamic> list = (res != null && res['results'] is List) ? res['results'] : [];
-      if (mounted) {
-        setState(() {
-          _searchResults = list;
-          _isLoading = false;
-        });
+      
+      for (var item in list) {
+        if (item is Map) {
+          final m = Map<String, dynamic>.from(item);
+          final itWord = (m['word'] ?? m['it'] ?? m['italian'] ?? m['it_word'] ?? '').toString().trim();
+          if (itWord.isNotEmpty && !seenWords.contains(itWord.toLowerCase())) {
+            seenWords.add(itWord.toLowerCase());
+            combinedResults.add(m);
+          }
+        }
+      }
+
+      // 2. If query given and combinedResults empty, also check words endpoint
+      if (combinedResults.isEmpty && cleanQuery.isNotEmpty) {
+        final wordsList = await ApiService.fetchWords(query: query);
+        for (var item in wordsList) {
+          if (item is Map) {
+            final m = Map<String, dynamic>.from(item);
+            final itWord = (m['word'] ?? m['it'] ?? m['italian'] ?? m['it_word'] ?? '').toString().trim();
+            if (itWord.isNotEmpty && !seenWords.contains(itWord.toLowerCase())) {
+              seenWords.add(itWord.toLowerCase());
+              combinedResults.add(m);
+            }
+          }
+        }
       }
     } catch (e) {
-      debugPrint('Dictionary search error: $e');
-      if (mounted) {
-        setState(() {
-          _searchResults = [];
-          _isLoading = false;
-        });
-      }
+      debugPrint('Dictionary server search error: $e');
+    }
+
+    // 3. Match against offline/local Patente Glossary Database
+    try {
+      QuestionDatabase.globalGlossary.forEach((itPhrase, bnMeaning) {
+        final itLower = itPhrase.toLowerCase();
+        final bnLower = bnMeaning.toLowerCase();
+
+        bool matches = false;
+        if (cleanLetter.isNotEmpty) {
+          matches = itPhrase.toUpperCase().startsWith(cleanLetter);
+        } else if (cleanQuery.isNotEmpty) {
+          matches = itLower.contains(cleanQuery) || bnLower.contains(cleanQuery);
+        }
+
+        if (matches && !seenWords.contains(itLower)) {
+          seenWords.add(itLower);
+          combinedResults.add({
+            'word': itPhrase,
+            'bn': bnMeaning,
+            'definition': bnMeaning,
+            'source': 'Patente B Glossary',
+            'target_type': 'argomenti',
+          });
+        }
+      });
+    } catch (e) {
+      debugPrint('Glossary search error: $e');
+    }
+
+    if (mounted) {
+      setState(() {
+        _searchResults = combinedResults;
+        _isLoading = false;
+      });
     }
   }
 
@@ -522,10 +578,10 @@ class _DizionarioSearchScreenState extends State<DizionarioSearchScreen> {
   }
 
   Widget _buildResultCard(Map<String, dynamic> item, bool isDark) {
-    final word = (item['word'] ?? item['it'] ?? item['italian'] ?? '').toString();
-    final bn = (item['bn'] ?? item['bangla'] ?? item['desc_bn'] ?? '').toString();
-    final source = (item['source'] ?? item['target_type'] ?? 'Argomenti MCQ').toString();
-    final rawImage = (item['image'] ?? item['image_url'] ?? '').toString();
+    final word = (item['word'] ?? item['it'] ?? item['italian'] ?? item['it_word'] ?? item['title'] ?? '').toString().trim();
+    final bn = (item['bn'] ?? item['bangla'] ?? item['bn_meaning'] ?? item['definition'] ?? item['desc_bn'] ?? item['meaning'] ?? '').toString().trim();
+    final source = (item['source'] ?? item['target_type'] ?? 'Dizionario Patente').toString();
+    final rawImage = (item['image'] ?? item['image_url'] ?? item['cover_image'] ?? '').toString();
     final imageUrl = ApiService.formatImageUrl(rawImage);
 
     return Container(

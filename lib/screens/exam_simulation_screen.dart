@@ -27,6 +27,7 @@ class ExamQuestion {
   final String? image;
   final String? audio;
   bool? userSelectedVero;
+  String? userNote;
 
   ExamQuestion({
     required this.id,
@@ -40,6 +41,7 @@ class ExamQuestion {
     this.image,
     this.audio,
     this.userSelectedVero,
+    this.userNote,
   });
 }
 
@@ -981,14 +983,40 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
 
           // 4. Note Icon (Sticky notes)
           InkWell(
-            onTap: () {
+            onTap: () async {
               setState(() => _showOpzioniToolbar = false);
+              final existingNote = currentQuestion.userNote ?? (await BookmarkManager.getNoteForQuestion(currentQuestion.statement, int.tryParse(currentQuestion.id)) ?? '');
+              if (!mounted) return;
               showDialog(
                 context: context,
                 builder: (context) => QuestionNoteDialog(
                   questionId: currentQuestion.id,
-                  initialNote: '',
-                  onSave: (note) {},
+                  initialNote: existingNote,
+                  onSave: (note) async {
+                    setState(() => currentQuestion.userNote = note);
+                    final mcq = McqQuestion(
+                      id: int.tryParse(currentQuestion.id) ?? 0,
+                      chapter: currentQuestion.chapter,
+                      chapterName: currentQuestion.chapterName,
+                      italian: currentQuestion.statement,
+                      bangla: currentQuestion.translation,
+                      isVero: currentQuestion.isVero,
+                      image: currentQuestion.image,
+                      audio: currentQuestion.audio,
+                      vocabulary: currentQuestion.vocabulary,
+                      userNote: note,
+                    );
+                    await BookmarkManager.saveNote(mcq, note, type: 'exam');
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(note.isNotEmpty ? 'নোট সফলভাবে সংরক্ষণ করা হয়েছে' : 'নোট মুছে ফেলা হয়েছে'),
+                          duration: const Duration(seconds: 2),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  },
                 ),
               );
             },
@@ -997,11 +1025,19 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
               width: 36,
               height: 36,
               decoration: BoxDecoration(
-                color: Colors.blue.shade50,
+                color: (currentQuestion.userNote != null && currentQuestion.userNote!.isNotEmpty)
+                    ? const Color(0xFF10B981).withOpacity(0.15)
+                    : Colors.blue.shade50,
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Center(
-                child: Icon(Icons.note_alt_outlined, color: Colors.blue.shade700, size: 20),
+                child: Icon(
+                  Icons.note_alt_outlined,
+                  color: (currentQuestion.userNote != null && currentQuestion.userNote!.isNotEmpty)
+                      ? const Color(0xFF10B981)
+                      : Colors.blue.shade700,
+                  size: 20,
+                ),
               ),
             ),
           ),

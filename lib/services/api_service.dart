@@ -6,8 +6,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/slider_model.dart';
 
 class ApiService {
-  // Production Live Server Mode
   static const List<String> candidateBaseUrls = [
+    'http://127.0.0.1:8000/api/v1',
+    'http://10.0.2.2:8000/api/v1',
+    'http://localhost:8000/api/v1',
     'https://mbanglapatenteb.com/api/v1',
     'https://www.mbanglapatenteb.com/api/v1',
   ];
@@ -203,8 +205,17 @@ class ApiService {
       try {
         final decoded = json.decode(response.body);
         if (decoded is List) return decoded;
-        if (decoded is Map<String, dynamic> && decoded['data'] is List) {
-          return decoded['data'] as List<dynamic>;
+        if (decoded is Map<String, dynamic>) {
+          if (decoded['data'] is List) return decoded['data'] as List<dynamic>;
+          if (decoded['results'] is List) return decoded['results'] as List<dynamic>;
+          if (decoded['words'] is List) return decoded['words'] as List<dynamic>;
+          if (decoded['items'] is List) return decoded['items'] as List<dynamic>;
+          if (decoded['data'] is Map<String, dynamic>) {
+            final subMap = decoded['data'] as Map<String, dynamic>;
+            if (subMap['results'] is List) return subMap['results'] as List<dynamic>;
+            if (subMap['data'] is List) return subMap['data'] as List<dynamic>;
+            if (subMap['words'] is List) return subMap['words'] as List<dynamic>;
+          }
         }
       } catch (e) {
         debugPrint('Error parsing JSON list response: $e');
@@ -223,6 +234,8 @@ class ApiService {
             return decoded['data'] as Map<String, dynamic>;
           }
           return decoded;
+        } else if (decoded is List) {
+          return {'results': decoded};
         }
       } catch (e) {
         debugPrint('Error parsing JSON map response: $e');
@@ -423,11 +436,35 @@ class ApiService {
   static Future<Map<String, dynamic>?> searchDictionary({String query = '', String letter = ''}) async {
     try {
       final queryParams = <String, String>{};
-      if (query.trim().isNotEmpty) queryParams['q'] = query.trim();
-      if (letter.trim().isNotEmpty) queryParams['letter'] = letter.trim();
+      if (query.trim().isNotEmpty) {
+        queryParams['q'] = query.trim();
+        queryParams['query'] = query.trim();
+        queryParams['search'] = query.trim();
+      }
+      if (letter.trim().isNotEmpty) {
+        queryParams['letter'] = letter.trim();
+      }
 
-      final response = await _getWithFallback('/dictionary/search', queryParameters: queryParams.isNotEmpty ? queryParams : null);
-      return _extractMap(response);
+      // 1. Try dedicated dictionary search endpoint
+      final response = await _getWithFallback('/dictionary/search', queryParameters: queryParams.isNotEmpty ? queryParams : null) ??
+          await _getWithFallback('/dictionary', queryParameters: queryParams.isNotEmpty ? queryParams : null) ??
+          await _getWithFallback('/words', queryParameters: queryParams.isNotEmpty ? queryParams : null) ??
+          await _getWithFallback('/dizionario', queryParameters: queryParams.isNotEmpty ? queryParams : null);
+
+      if (response != null) {
+        final map = _extractMap(response);
+        if (map != null) {
+          if (map['results'] is List) return map;
+          if (map['data'] is List) return {'results': map['data']};
+          if (map['words'] is List) return {'results': map['words']};
+          return map;
+        }
+        final list = _extractList(response);
+        if (list.isNotEmpty) {
+          return {'results': list};
+        }
+      }
+      return null;
     } catch (e) {
       debugPrint('Error searching dictionary: $e');
       return null;
@@ -438,9 +475,10 @@ class ApiService {
   static Future<List<dynamic>> fetchWords({String query = '', String search = ''}) async {
     try {
       final searchTerm = query.isNotEmpty ? query : search;
-      final queryParams = searchTerm.isNotEmpty ? {'query': searchTerm, 'search': searchTerm} : null;
+      final queryParams = searchTerm.isNotEmpty ? {'query': searchTerm, 'search': searchTerm, 'q': searchTerm} : null;
       final response = await _getWithFallback('/words', queryParameters: queryParams) ??
-          await _getWithFallback('/dizionario', queryParameters: queryParams);
+          await _getWithFallback('/dizionario', queryParameters: queryParams) ??
+          await _getWithFallback('/dictionary', queryParameters: queryParams);
       return _extractList(response);
     } catch (e) {
       debugPrint('Error fetching words: $e');

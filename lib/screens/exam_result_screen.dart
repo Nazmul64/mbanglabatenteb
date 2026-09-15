@@ -25,6 +25,7 @@ class ExamResultItem {
   final String? audio;
   final List<dynamic>? vocabulary;
   final Map<String, String> vocabularyHelp;
+  String? userNote;
 
   ExamResultItem({
     required this.index,
@@ -38,6 +39,7 @@ class ExamResultItem {
     this.audio,
     this.vocabulary,
     this.vocabularyHelp = const {},
+    this.userNote,
   });
 
   bool get isAttempted => userSelectedVero != null;
@@ -559,18 +561,44 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                   },
                 ),
 
-                // 3. Blue Note Button
+                // 3. Note Button
                 _buildActionIcon(
                   icon: Icons.note_alt_outlined,
-                  color: const Color(0xFF1976D2),
-                  bgColor: Colors.transparent,
-                  onTap: () {
+                  color: (item.userNote != null && item.userNote!.isNotEmpty) ? const Color(0xFF10B981) : const Color(0xFF1976D2),
+                  bgColor: (item.userNote != null && item.userNote!.isNotEmpty) ? const Color(0xFF10B981).withOpacity(0.12) : Colors.transparent,
+                  onTap: () async {
+                    final existingNote = item.userNote ?? (await BookmarkManager.getNoteForQuestion(item.italian, item.index) ?? '');
+                    if (!mounted) return;
                     showDialog(
                       context: context,
                       builder: (context) => QuestionNoteDialog(
                         questionId: '${item.index}',
-                        initialNote: '',
-                        onSave: (note) {},
+                        initialNote: existingNote,
+                        onSave: (note) async {
+                          setState(() => item.userNote = note);
+                          final mcq = McqQuestion(
+                            id: item.index,
+                            chapter: item.chapter,
+                            chapterName: item.chapterName,
+                            italian: item.italian,
+                            bangla: item.bangla,
+                            isVero: item.isVero,
+                            image: item.image,
+                            audio: item.audio,
+                            vocabulary: item.vocabulary,
+                            userNote: note,
+                          );
+                          await BookmarkManager.saveNote(mcq, note, type: 'exam');
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(note.isNotEmpty ? 'নোট সফলভাবে সংরক্ষণ করা হয়েছে' : 'নোট মুছে ফেলা হয়েছে'),
+                                duration: const Duration(seconds: 2),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }
+                        },
                       ),
                     );
                   },

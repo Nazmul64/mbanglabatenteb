@@ -396,35 +396,62 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
 
   // --- Custom Floating Bottom Navigation Bar ---
 
+  // --- Custom Floating Bottom Navigation Bar (5-Button Layout Matching Reference App) ---
+
   Widget _buildFloatingBottomBar(bool isDark) {
     return Container(
-      height: 74,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      height: 58,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E293B).withOpacity(0.95) : Colors.white.withOpacity(0.95),
-        borderRadius: BorderRadius.circular(37),
+        color: isDark ? const Color(0xFF1E293B).withOpacity(0.96) : Colors.white.withOpacity(0.96),
+        borderRadius: BorderRadius.circular(30),
         border: Border.all(
           color: isDark ? Colors.white.withOpacity(0.08) : Colors.grey.shade200,
           width: 1,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
+            color: Colors.black.withOpacity(isDark ? 0.35 : 0.08),
             blurRadius: 16,
-            offset: const Offset(0, 8),
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
+          // Button 1: Stats / Ranking / Performance (Bar chart icon from reference screenshot)
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _navigateToProfile,
+              borderRadius: BorderRadius.circular(20),
+              child: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Container(width: 4, height: 12, decoration: BoxDecoration(color: const Color(0xFFFF7043), borderRadius: BorderRadius.circular(2))),
+                    const SizedBox(width: 2.5),
+                    Container(width: 4, height: 18, decoration: BoxDecoration(color: const Color(0xFFFFA726), borderRadius: BorderRadius.circular(2))),
+                    const SizedBox(width: 2.5),
+                    Container(width: 4, height: 14, decoration: BoxDecoration(color: const Color(0xFF42A5F5), borderRadius: BorderRadius.circular(2))),
+                    const SizedBox(width: 2.5),
+                    Container(width: 4, height: 22, decoration: BoxDecoration(color: const Color(0xFF66BB6A), borderRadius: BorderRadius.circular(2))),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
           // Button 2: Theme Toggle (Dark circle with moon/sun from screenshot)
           InkWell(
             onTap: () => widget.onThemeChanged(!widget.isDark),
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(22),
             child: Container(
-              width: 48,
-              height: 48,
+              width: 42,
+              height: 42,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: const LinearGradient(
@@ -433,14 +460,14 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
                   end: Alignment.bottomRight,
                 ),
                 border: Border.all(
-                  color: Colors.white.withOpacity(0.12),
+                  color: Colors.white.withOpacity(0.15),
                   width: 1,
                 ),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.2),
-                    blurRadius: 6,
-                    offset: const Offset(0, 3),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
                   ),
                 ],
               ),
@@ -448,7 +475,7 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
                 child: Icon(
                   widget.isDark ? Icons.light_mode_rounded : Icons.nights_stay_rounded,
                   color: widget.isDark ? const Color(0xFFFFD700) : const Color(0xFFFFF176),
-                  size: 22,
+                  size: 20,
                 ),
               ),
             ),
@@ -459,7 +486,7 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
             icon: Icon(
               Icons.search_rounded,
               color: isDark ? Colors.white70 : Colors.grey.shade700,
-              size: 28,
+              size: 26,
             ),
             onPressed: _navigateToDictionary,
             tooltip: 'ডিকশনারি খুঁজুন',
@@ -470,7 +497,7 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
             icon: Icon(
               Icons.qr_code_scanner_rounded,
               color: isDark ? Colors.white70 : Colors.grey.shade700,
-              size: 28,
+              size: 24,
             ),
             onPressed: _showQRScannerDemo,
             tooltip: 'QR স্ক্যানার',
@@ -480,8 +507,8 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
           GestureDetector(
             onTap: _showHelpBottomSheet,
             child: Container(
-              width: 48,
-              height: 34,
+              width: 44,
+              height: 32,
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
@@ -492,7 +519,7 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
                 borderRadius: BorderRadius.circular(8),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFFFF5252).withOpacity(0.2),
+                    color: const Color(0xFFFF5252).withOpacity(0.25),
                     blurRadius: 4,
                     offset: const Offset(0, 2),
                   ),
@@ -541,10 +568,10 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final double bottomInset = MediaQuery.of(context).padding.bottom;
-    final double floatingBottomOffset = bottomInset > 0 ? (bottomInset + 18) : 32;
+    final double floatingBottomOffset = bottomInset > 0 ? (bottomInset + 6) : 12;
 
     return Scaffold(
-      appBar: null, // Hide AppBar on home screen to let curved header go all the way up
+      appBar: null, // Hide AppBar on home screen to let sticky header go all the way up
       drawer: AppNavigationDrawer(
         onTapTutorials: _navigateToTutorials,
         onTapDictionary: _navigateToDictionary,
@@ -580,8 +607,8 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
           // Floating Action Navigation Bar
           Positioned(
             bottom: floatingBottomOffset,
-            left: 20,
-            right: 20,
+            left: 18,
+            right: 18,
             child: _buildFloatingBottomBar(isDark),
           ),
         ],

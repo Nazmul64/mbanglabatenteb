@@ -1192,7 +1192,34 @@ class _CartelliScreenState extends State<CartelliScreen> {
       builder: (context) => QuestionNoteDialog(
         questionId: quiz.id,
         initialNote: quiz.studyNotes,
-        onSave: (newNote) => setState(() => quiz.studyNotes = newNote),
+        onSave: (newNote) async {
+          setState(() => quiz.studyNotes = newNote);
+          final mcq = McqQuestion(
+            id: quiz.rawId != 0 ? quiz.rawId : (int.tryParse(quiz.id) ?? 0),
+            chapter: _selectedChapter?.id ?? 1,
+            chapterName: _selectedChapter?.title ?? 'Cartelli',
+            italian: quiz.italian,
+            bangla: quiz.bangla,
+            isVero: quiz.isVero,
+            image: quiz.image,
+            imagePosition: quiz.imagePosition,
+            audio: quiz.audioUrl,
+            vocabulary: quiz.vocabulary,
+            userNote: newNote,
+            giustoCount: quiz.giustoCount,
+            sbagliatoCount: quiz.sbagliatoCount,
+          );
+          await BookmarkManager.saveNote(mcq, newNote, type: 'cartelli');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(newNote.isNotEmpty ? 'নোট সফলভাবে সংরক্ষণ করা হয়েছে' : 'নোট মুছে ফেলা হয়েছে'),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        },
       ),
     );
   }

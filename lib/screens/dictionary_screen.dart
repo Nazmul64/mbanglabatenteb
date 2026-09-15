@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'triangle_pattern_painter.dart';
 import '../services/api_service.dart';
+import '../models/question_database.dart';
 
 class PatenteWord {
   final String italian;
@@ -69,17 +70,20 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
 
     final apiData = await ApiService.fetchDictionary(search: query);
     final List<PatenteWord> loaded = [];
+    final Set<String> seen = {};
+
     if (apiData.isNotEmpty) {
       for (var item in apiData) {
         if (item is Map) {
-          final itWord = (item['word'] ?? item['italian'] ?? item['it_word'] ?? '').toString();
-          final bnWord = (item['bn'] ?? item['bangla'] ?? item['bn_word'] ?? item['bn_meaning'] ?? '').toString();
-          final descBn = (item['desc_bn'] ?? item['desc_it'] ?? item['definition'] ?? item['bn_description'] ?? item['explanation'] ?? '').toString();
-          final enWord = (item['en_word'] ?? item['english'] ?? '').toString();
-          final example = (item['example'] ?? item['it_example'] ?? '').toString();
-          final audio = (item['audio'] ?? item['voice'] ?? '').toString();
+          final itWord = (item['word'] ?? item['italian'] ?? item['it_word'] ?? item['title'] ?? '').toString().trim();
+          final bnWord = (item['bn'] ?? item['bangla'] ?? item['bn_word'] ?? item['bn_meaning'] ?? item['definition'] ?? '').toString().trim();
+          final descBn = (item['desc_bn'] ?? item['desc_it'] ?? item['definition'] ?? item['bn_description'] ?? item['explanation'] ?? '').toString().trim();
+          final enWord = (item['en_word'] ?? item['english'] ?? '').toString().trim();
+          final example = (item['example'] ?? item['it_example'] ?? '').toString().trim();
+          final audio = (item['audio'] ?? item['voice'] ?? '').toString().trim();
 
           if (itWord.isNotEmpty || bnWord.isNotEmpty) {
+            seen.add(itWord.toLowerCase());
             loaded.add(PatenteWord(
               italian: itWord.isNotEmpty ? itWord : bnWord,
               bangla: bnWord,
@@ -92,6 +96,24 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
         }
       }
     }
+
+    // Glossary Fallback
+    final cleanQ = query.trim().toLowerCase();
+    QuestionDatabase.globalGlossary.forEach((it, bn) {
+      final itLower = it.toLowerCase();
+      final bnLower = bn.toLowerCase();
+      if ((cleanQ.isEmpty || itLower.contains(cleanQ) || bnLower.contains(cleanQ)) && !seen.contains(itLower)) {
+        seen.add(itLower);
+        loaded.add(PatenteWord(
+          italian: it,
+          bangla: bn,
+          english: '',
+          explanation: bn,
+          example: '',
+          audioUrl: '',
+        ));
+      }
+    });
 
     if (mounted) {
       setState(() {

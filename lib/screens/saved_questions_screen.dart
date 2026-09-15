@@ -140,19 +140,7 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
           }).where((q) => q.italian.isNotEmpty).toList();
         }
       } else if (widget.mode == McqScreenMode.noted) {
-        final apiData = await ApiService.fetchNotedMcqs();
-        if (apiData.isNotEmpty) {
-          loaded = apiData.map((json) {
-            final raw = (json is Map && json.containsKey('question') && json['question'] != null)
-                ? json['question']
-                : json;
-            final baseQ = McqQuestion.fromJson(raw is Map<String, dynamic> ? raw : (json is Map<String, dynamic> ? json : {}));
-            final noteStr = (json is Map && json['note_text'] != null)
-                ? json['note_text'].toString()
-                : ((json is Map && json['note'] != null) ? json['note'].toString() : null);
-            return noteStr != null ? baseQ.copyWith(userNote: noteStr) : baseQ;
-          }).where((q) => q.italian.isNotEmpty).toList();
-        }
+        loaded = await BookmarkManager.getNotedQuestions();
       } else {
         loaded = await BookmarkManager.getSavedQuestions();
       }
@@ -974,14 +962,46 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
                   _buildActionButton(
                     icon: Icons.edit_note_rounded,
                     label: 'নোট',
-                    color: Colors.grey.shade700,
+                    color: (quiz.studyNotes.isNotEmpty) ? const Color(0xFF10B981) : Colors.grey.shade700,
                     onTap: () {
                       showDialog(
                         context: context,
                         builder: (context) => QuestionNoteDialog(
                           questionId: quiz.id,
                           initialNote: quiz.studyNotes,
-                          onSave: (newNote) => setState(() => quiz.studyNotes = newNote),
+                          onSave: (newNote) async {
+                            setState(() => quiz.studyNotes = newNote);
+                            final mcq = McqQuestion(
+                              id: quiz.rawId != 0 ? quiz.rawId : (int.tryParse(quiz.id) ?? 0),
+                              chapter: 1,
+                              chapterName: 'Noted Question',
+                              italian: quiz.italian,
+                              bangla: quiz.bangla,
+                              isVero: quiz.isVero,
+                              image: quiz.image,
+                              imagePosition: quiz.imagePosition,
+                              audio: quiz.audioUrl,
+                              vocabulary: quiz.vocabulary,
+                              userNote: newNote,
+                              giustoCount: quiz.giustoCount,
+                              sbagliatoCount: quiz.sbagliatoCount,
+                            );
+                            await BookmarkManager.saveNote(mcq, newNote);
+                            if (newNote.trim().isEmpty && widget.mode == McqScreenMode.noted) {
+                              setState(() {
+                                _quizzes.removeWhere((q) => q.italian == quiz.italian);
+                              });
+                            }
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(newNote.isNotEmpty ? 'নোট সফলভাবে সংরক্ষণ করা হয়েছে' : 'নোট মুছে ফেলা হয়েছে'),
+                                  duration: const Duration(seconds: 2),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          },
                         ),
                       );
                     },

@@ -139,6 +139,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
+    final bottomInset = MediaQuery.of(context).padding.bottom;
+
     return Stack(
       children: [
         // 1. Staggered Background Pattern
@@ -152,107 +154,115 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
 
-        // 2. Scrollable Body
-        SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // 3. Premium Flat Green Header Container
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF1E293B) : const Color(0xFF4CAF50),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: SafeArea(
-                  top: true,
-                  bottom: false,
-                  left: true,
-                  right: true,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        // Left: Navigation Drawer Hamburger Button
-                        Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () {
-                              Scaffold.of(context).openDrawer();
-                            },
-                            borderRadius: BorderRadius.circular(20),
-                            child: Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.white24,
-                                border: Border.all(color: Colors.white.withOpacity(0.6), width: 1.2),
-                              ),
-                              child: const Icon(Icons.menu_rounded, color: Colors.white, size: 22),
+        // 2. Main Column with Sticky Top Header + Scrollable Body
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Sticky Top Green Header
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E293B) : const Color(0xFF4CAF50),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: SafeArea(
+                top: true,
+                bottom: false,
+                left: true,
+                right: true,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // Left: Navigation Drawer Hamburger Button
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () {
+                            Scaffold.of(context).openDrawer();
+                          },
+                          borderRadius: BorderRadius.circular(20),
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white24,
+                              border: Border.all(color: Colors.white.withOpacity(0.6), width: 1.2),
+                            ),
+                            child: const Icon(Icons.menu_rounded, color: Colors.white, size: 22),
+                          ),
+                        ),
+                      ),
+                      // Center: App Title
+                      const Expanded(
+                        child: Text(
+                          'M Bangla Patente B',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      // Right: Profile Button
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: widget.onTapProfile,
+                          borderRadius: BorderRadius.circular(20),
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white24,
+                              border: Border.all(color: Colors.white.withOpacity(0.6), width: 1.2),
+                            ),
+                            child: const Center(
+                              child: Icon(Icons.person_rounded, color: Colors.white, size: 22),
                             ),
                           ),
                         ),
-                        // Center: App Title
-                        const Expanded(
-                          child: Text(
-                            'M Bangla Patente B',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.5,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        // Right: Profile Button
-                        Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: widget.onTapProfile,
-                            borderRadius: BorderRadius.circular(20),
-                            child: Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.white24,
-                                border: Border.all(color: Colors.white.withOpacity(0.6), width: 1.2),
-                              ),
-                              child: const Center(
-                                child: Icon(Icons.person_rounded, color: Colors.white, size: 22),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),
+            ),
 
-              // 4. Custom Auto-Sliding Image Banner (Slider)
-              const ImageSlider(),
+            // Scrollable Content (Banner + Dynamic Cards Grid)
+            Expanded(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Custom Auto-Sliding Image Banner (Slider)
+                    const ImageSlider(),
 
-              // 5. Dynamic Grid of Services from API
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 140),
-                child: _buildDynamicCardsGrid(isDark),
+                    // Dynamic Grid of Services from API
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(20, 16, 20, 95 + bottomInset),
+                      child: _buildDynamicCardsGrid(isDark),
+                    ),
+                  ],
+                ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ],
     );
