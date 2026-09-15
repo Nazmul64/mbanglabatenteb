@@ -389,8 +389,8 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
       }
     }
 
-    // Persist all attempted questions into Correct & Wrong MCQs
-    BookmarkManager.recordExamResults(results);
+    // Persist all attempted questions into Correct & Wrong MCQs and sync with server
+    BookmarkManager.recordExamResults(results, timeSpentSeconds: (1200 - _secondsRemaining).clamp(0, 1200));
 
     _showExamResultModal(results, giustoCount, sbagliatoCount, nonDateCount);
   }

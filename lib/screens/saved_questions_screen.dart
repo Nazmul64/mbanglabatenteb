@@ -453,35 +453,45 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
           SafeArea(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: Color(0xFF22C55E)))
-                : _quizzes.isEmpty
-                    ? Center(
-                        child: Text(
-                          'কোনো প্রশ্ন পাওয়া যায়নি',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: isDark ? Colors.white54 : Colors.grey.shade600,
+                : RefreshIndicator(
+                    onRefresh: _loadQuestions,
+                    color: const Color(0xFF22C55E),
+                    child: _quizzes.isEmpty
+                        ? ListView(
+                            physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                            children: [
+                              SizedBox(height: MediaQuery.of(context).size.height * 0.35),
+                              Center(
+                                child: Text(
+                                  'কোনো প্রশ্ন পাওয়া যায়নি',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: isDark ? Colors.white54 : Colors.grey.shade600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          )
+                        : ListView(
+                            padding: const EdgeInsets.only(bottom: 80),
+                            physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                            children: [
+                              _buildTopHeaderSection(isDark),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                child: Column(
+                                  children: _quizzes.map((quiz) {
+                                    return Padding(
+                                      padding: const EdgeInsets.only(bottom: 16.0),
+                                      child: _buildQuizCard(quiz, isDark),
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      )
-                    : ListView(
-                        padding: const EdgeInsets.only(bottom: 80),
-                        physics: const BouncingScrollPhysics(),
-                        children: [
-                          _buildTopHeaderSection(isDark),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                            child: Column(
-                              children: _quizzes.map((quiz) {
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 16.0),
-                                  child: _buildQuizCard(quiz, isDark),
-                                );
-                              }).toList(),
-                            ),
-                          ),
-                        ],
-                      ),
+                  ),
           ),
         ],
       ),

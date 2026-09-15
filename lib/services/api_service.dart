@@ -634,7 +634,9 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, String>> _getUserAuthParams() async {
+  static Future<Map<String, String>> _getUserAuthParams() => getUserAuthParams();
+
+  static Future<Map<String, String>> getUserAuthParams() async {
     final params = <String, String>{};
     try {
       final prefs = await SharedPreferences.getInstance();

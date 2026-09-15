@@ -374,7 +374,9 @@ class BookmarkManager {
   }
 
   /// Record all attempted questions from an exam / test simulation
-  static Future<void> recordExamResults(List<ExamResultItem> results) async {
+  static Future<void> recordExamResults(List<ExamResultItem> results, {int? timeSpentSeconds}) async {
+    final List<Map<String, dynamic>> loggedAnswers = [];
+
     for (var item in results) {
       if (!item.isAttempted) continue;
       final mcq = McqQuestion(
@@ -394,6 +396,24 @@ class BookmarkManager {
         item.isCorrect,
         userAnswer: item.userSelectedVero != null ? (item.userSelectedVero! ? 'V' : 'F') : null,
       );
+
+      loggedAnswers.add({
+        'question_id': item.id,
+        'answer': item.userSelectedVero,
+        'is_correct': item.isCorrect,
+      });
+    }
+
+    // Submit complete exam report to /scheda-esame/submit
+    if (loggedAnswers.isNotEmpty) {
+      try {
+        final authParams = await ApiService.getUserAuthParams();
+        ApiService.submitSchedaEsame({
+          ...authParams,
+          'time_spent_seconds': timeSpentSeconds ?? 600,
+          'answers': loggedAnswers,
+        });
+      } catch (_) {}
     }
   }
 
