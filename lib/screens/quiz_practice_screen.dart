@@ -1319,7 +1319,7 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
                           final mcq = McqQuestion(
                             id: quiz.rawId != 0 ? quiz.rawId : (int.tryParse(quiz.id) ?? 0),
                             chapter: widget.initialChapterId ?? 1,
-                            chapterName: widget.quizTitle,
+                            chapterName: widget.quizTitle ?? 'Argomenti',
                             italian: quiz.italian,
                             bangla: quiz.bangla,
                             isVero: quiz.isVero,

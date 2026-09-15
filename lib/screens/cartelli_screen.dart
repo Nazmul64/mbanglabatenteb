@@ -1196,8 +1196,8 @@ class _CartelliScreenState extends State<CartelliScreen> {
           setState(() => quiz.studyNotes = newNote);
           final mcq = McqQuestion(
             id: quiz.rawId != 0 ? quiz.rawId : (int.tryParse(quiz.id) ?? 0),
-            chapter: _selectedChapter?.id ?? 1,
-            chapterName: _selectedChapter?.title ?? 'Cartelli',
+            chapter: 1,
+            chapterName: _selectedCapitolo,
             italian: quiz.italian,
             bangla: quiz.bangla,
             isVero: quiz.isVero,
