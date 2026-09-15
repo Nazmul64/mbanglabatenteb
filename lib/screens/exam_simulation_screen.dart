@@ -364,6 +364,7 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
     for (int i = 0; i < _questions.length; i++) {
       final q = _questions[i];
       final item = ExamResultItem(
+        id: int.tryParse(q.id) ?? (i + 1),
         index: i + 1,
         italian: q.statement,
         bangla: q.translation,
@@ -387,6 +388,9 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
         nonDateCount++;
       }
     }
+
+    // Persist all attempted questions into Correct & Wrong MCQs
+    BookmarkManager.recordExamResults(results);
 
     _showExamResultModal(results, giustoCount, sbagliatoCount, nonDateCount);
   }
@@ -1866,12 +1870,22 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
           currentQuestion.userSelectedVero = isVeroButton;
         });
 
-        // Log user MCQ result to Laravel database
         final rawId = int.tryParse(currentQuestion.id) ?? 1;
-        ApiService.logUserMcqResult(
-          rawId,
+        final mcq = McqQuestion(
+          id: rawId,
+          chapter: currentQuestion.chapter,
+          chapterName: currentQuestion.chapterName,
+          italian: currentQuestion.statement,
+          bangla: currentQuestion.translation,
+          isVero: currentQuestion.isVero,
+          image: currentQuestion.image,
+          audio: currentQuestion.audio,
+          vocabulary: currentQuestion.vocabulary,
+        );
+        BookmarkManager.recordQuestionResult(
+          mcq,
           isCorrect,
-          isVeroButton ? 'V' : 'F',
+          userAnswer: isVeroButton ? 'V' : 'F',
         );
       },
       borderRadius: BorderRadius.circular(12),

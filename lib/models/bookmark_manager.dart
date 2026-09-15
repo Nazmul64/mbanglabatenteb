@@ -3,12 +3,21 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'mcq_question.dart';
 import '../services/api_service.dart';
+import '../screens/exam_result_screen.dart';
 
 class BookmarkManager {
   static const String _key = 'bookmarked_questions';
   static const String _notedKey = 'noted_questions';
+  static const String _correctKey = 'correct_questions';
+  static const String _wrongKey = 'wrong_questions';
 
-  // Sync local bookmarks with backend API database (Web <-> App two-way synchronization)
+  static String _cleanKey(String text) => text.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+
+  // ══════════════════════════════════════════════════════
+  // 📌 1. BOOKMARKS / SAVED MCQS (Local + Server Sync)
+  // ══════════════════════════════════════════════════════
+
+  // Sync local bookmarks with backend API database
   static Future<List<McqQuestion>?> syncWithServer() async {
     try {
       final serverItems = await ApiService.fetchSavedMcqs();
@@ -41,16 +50,16 @@ class BookmarkManager {
         } catch (_) {}
       }
 
-      // Combine unique questions by ID or Italian text
+      // Combine unique questions by clean Italian text
       final Map<String, McqQuestion> uniqueMap = {};
       for (var q in serverQuestions) {
-        final key = q.id != 0 ? '${q.id}' : q.italian;
-        uniqueMap[key] = q;
+        if (q.italian.trim().isNotEmpty) {
+          uniqueMap[_cleanKey(q.italian)] = q;
+        }
       }
       for (var q in localQuestions) {
-        final key = q.id != 0 ? '${q.id}' : q.italian;
-        if (!uniqueMap.containsKey(key)) {
-          uniqueMap[key] = q;
+        if (q.italian.trim().isNotEmpty) {
+          uniqueMap[_cleanKey(q.italian)] = q;
         }
       }
 
@@ -68,24 +77,24 @@ class BookmarkManager {
   static Future<void> saveQuestion(McqQuestion question, {String? type}) async {
     final prefs = await SharedPreferences.getInstance();
     final List<String> list = prefs.getStringList(_key) ?? [];
+    final targetKey = _cleanKey(question.italian);
     
-    // Check if already saved (by Italian text or ID)
+    // Check if already saved (by Italian text)
     final bool exists = list.any((item) {
       try {
         final map = json.decode(item);
-        if (question.id != 0 && map['id'] == question.id) return true;
-        return map['italian'] == question.italian;
+        return _cleanKey(map['italian']?.toString() ?? '') == targetKey;
       } catch (_) {
         return false;
       }
     });
 
     if (!exists) {
-      list.add(json.encode(question.toJson()));
+      list.insert(0, json.encode(question.toJson()));
       await prefs.setStringList(_key, list);
     }
 
-    // Sync to Laravel API backend database for website
+    // Sync to Laravel API backend database
     try {
       await ApiService.toggleSavedMcq(question.id, type: type, italian: question.italian);
     } catch (_) {}
@@ -95,12 +104,12 @@ class BookmarkManager {
   static Future<void> removeQuestion(String italianText, [dynamic questionId, String? type]) async {
     final prefs = await SharedPreferences.getInstance();
     final List<String> list = prefs.getStringList(_key) ?? [];
+    final targetKey = _cleanKey(italianText);
     
     list.removeWhere((item) {
       try {
         final map = json.decode(item);
-        if (questionId != null && questionId != 0 && map['id'] == questionId) return true;
-        return map['italian'] == italianText;
+        return _cleanKey(map['italian']?.toString() ?? '') == targetKey;
       } catch (_) {
         return false;
       }
@@ -108,7 +117,7 @@ class BookmarkManager {
 
     await prefs.setStringList(_key, list);
 
-    // Sync to Laravel API backend database for website
+    // Sync to Laravel API backend database
     try {
       await ApiService.toggleSavedMcq(questionId ?? 0, type: type, italian: italianText);
     } catch (_) {}
@@ -130,12 +139,12 @@ class BookmarkManager {
   static Future<bool> isSaved(String italianText, [dynamic questionId]) async {
     final prefs = await SharedPreferences.getInstance();
     final List<String> list = prefs.getStringList(_key) ?? [];
+    final targetKey = _cleanKey(italianText);
     
     return list.any((item) {
       try {
         final map = json.decode(item);
-        if (questionId != null && questionId != 0 && map['id'] == questionId) return true;
-        return map['italian'] == italianText;
+        return _cleanKey(map['italian']?.toString() ?? '') == targetKey;
       } catch (_) {
         return false;
       }
@@ -144,9 +153,8 @@ class BookmarkManager {
 
   // Get all saved questions
   static Future<List<McqQuestion>> getSavedQuestions() async {
-    // Attempt background sync with server first
     final synced = await syncWithServer();
-    if (synced != null) {
+    if (synced != null && synced.isNotEmpty) {
       return synced;
     }
 
@@ -166,22 +174,22 @@ class BookmarkManager {
   }
 
   // ══════════════════════════════════════════════════════
-  // 📝 NOTES MANAGEMENT (Local Persistence & Server Sync)
+  // 📝 2. NOTES MANAGEMENT (Strict Isolation per Question)
   // ══════════════════════════════════════════════════════
 
-  /// Save or update a note for a question
+  /// Save or update a note for a specific question (Strictly isolated by Italian text)
   static Future<void> saveNote(McqQuestion question, String noteText, {String? type}) async {
     final prefs = await SharedPreferences.getInstance();
     final List<String> list = prefs.getStringList(_notedKey) ?? [];
+    final targetKey = _cleanKey(question.italian);
     
-    final updatedQ = question.copyWith(userNote: noteText);
+    final updatedQ = question.copyWith(userNote: noteText.trim());
 
-    // Remove existing entry if present
+    // Remove existing entry for THIS exact question only
     list.removeWhere((item) {
       try {
         final map = json.decode(item);
-        if (question.id != 0 && map['id'] == question.id) return true;
-        return map['italian'] == question.italian;
+        return _cleanKey(map['italian']?.toString() ?? '') == targetKey;
       } catch (_) {
         return false;
       }
@@ -206,16 +214,16 @@ class BookmarkManager {
     } catch (_) {}
   }
 
-  /// Remove a note
+  /// Remove a note for a question
   static Future<void> removeNote(String italianText, [dynamic questionId]) async {
     final prefs = await SharedPreferences.getInstance();
     final List<String> list = prefs.getStringList(_notedKey) ?? [];
+    final targetKey = _cleanKey(italianText);
     
     list.removeWhere((item) {
       try {
         final map = json.decode(item);
-        if (questionId != null && questionId != 0 && map['id'] == questionId) return true;
-        return map['italian'] == italianText;
+        return _cleanKey(map['italian']?.toString() ?? '') == targetKey;
       } catch (_) {
         return false;
       }
@@ -230,15 +238,22 @@ class BookmarkManager {
     } catch (_) {}
   }
 
-  /// Get the stored note for a question
+  /// Get the stored note for a question (Strictly matches only the exact Italian statement)
   static Future<String?> getNoteForQuestion(String italianText, [dynamic questionId]) async {
     final prefs = await SharedPreferences.getInstance();
     final List<String> list = prefs.getStringList(_notedKey) ?? [];
+    final targetKey = _cleanKey(italianText);
+    if (targetKey.isEmpty) return null;
+
     for (var item in list) {
       try {
         final map = json.decode(item);
-        if ((questionId != null && questionId != 0 && map['id'] == questionId) || map['italian'] == italianText) {
-          return map['userNote']?.toString() ?? map['user_note']?.toString();
+        final itemKey = _cleanKey(map['italian']?.toString() ?? '');
+        if (itemKey == targetKey) {
+          final note = map['userNote']?.toString() ?? map['user_note']?.toString();
+          if (note != null && note.trim().isNotEmpty) {
+            return note.trim();
+          }
         }
       } catch (_) {}
     }
@@ -277,15 +292,17 @@ class BookmarkManager {
           }
         }
 
-        // Merge server and local, giving local precedence for recent edits
+        // Merge server and local
         final Map<String, McqQuestion> uniqueMap = {};
         for (var q in serverNoted) {
-          final key = q.id != 0 ? '${q.id}' : q.italian;
-          uniqueMap[key] = q;
+          if (q.italian.trim().isNotEmpty) {
+            uniqueMap[_cleanKey(q.italian)] = q;
+          }
         }
         for (var q in localNoted) {
-          final key = q.id != 0 ? '${q.id}' : q.italian;
-          uniqueMap[key] = q;
+          if (q.italian.trim().isNotEmpty) {
+            uniqueMap[_cleanKey(q.italian)] = q;
+          }
         }
 
         final mergedList = uniqueMap.values.toList();
@@ -298,5 +315,199 @@ class BookmarkManager {
     }
 
     return localNoted;
+  }
+
+  // ══════════════════════════════════════════════════════
+  // ✅ 3. CORRECT & WRONG MCQS MANAGEMENT (Local + Server)
+  // ══════════════════════════════════════════════════════
+
+  /// Record a single question answer result (Correct or Wrong)
+  static Future<void> recordQuestionResult(McqQuestion question, bool isCorrect, {String? userAnswer}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final targetKey = _cleanKey(question.italian);
+    if (targetKey.isEmpty) return;
+
+    final key = isCorrect ? _correctKey : _wrongKey;
+    final otherKey = isCorrect ? _wrongKey : _correctKey;
+
+    final List<String> targetList = prefs.getStringList(key) ?? [];
+    final List<String> otherList = prefs.getStringList(otherKey) ?? [];
+
+    // 1. Remove from opposing list if moving from wrong -> correct or correct -> wrong
+    otherList.removeWhere((item) {
+      try {
+        final map = json.decode(item);
+        return _cleanKey(map['italian']?.toString() ?? '') == targetKey;
+      } catch (_) {
+        return false;
+      }
+    });
+    await prefs.setStringList(otherKey, otherList);
+
+    // 2. Add or update in target list
+    int existingIndex = targetList.indexWhere((item) {
+      try {
+        final map = json.decode(item);
+        return _cleanKey(map['italian']?.toString() ?? '') == targetKey;
+      } catch (_) {
+        return false;
+      }
+    });
+
+    final updatedQ = question.copyWith(
+      giustoCount: isCorrect ? (question.giustoCount + 1) : question.giustoCount,
+      sbagliatoCount: !isCorrect ? (question.sbagliatoCount + 1) : question.sbagliatoCount,
+    );
+
+    if (existingIndex >= 0) {
+      targetList[existingIndex] = json.encode(updatedQ.toJson());
+    } else {
+      targetList.insert(0, json.encode(updatedQ.toJson()));
+    }
+    await prefs.setStringList(key, targetList);
+
+    // 3. Log to API backend database
+    try {
+      final answer = userAnswer ?? (question.isVero ? (isCorrect ? 'V' : 'F') : (isCorrect ? 'F' : 'V'));
+      await ApiService.logUserMcqResult(question.id, isCorrect, answer);
+    } catch (_) {}
+  }
+
+  /// Record all attempted questions from an exam / test simulation
+  static Future<void> recordExamResults(List<ExamResultItem> results) async {
+    for (var item in results) {
+      if (!item.isAttempted) continue;
+      final mcq = McqQuestion(
+        id: item.id,
+        chapter: item.chapter,
+        chapterName: item.chapterName,
+        italian: item.italian,
+        bangla: item.bangla,
+        isVero: item.isVero,
+        image: item.image,
+        audio: item.audio,
+        vocabulary: item.vocabulary,
+        userNote: item.userNote,
+      );
+      await recordQuestionResult(
+        mcq,
+        item.isCorrect,
+        userAnswer: item.userSelectedVero != null ? (item.userSelectedVero! ? 'V' : 'F') : null,
+      );
+    }
+  }
+
+  /// Get all correct questions (merging local + server)
+  static Future<List<McqQuestion>> getCorrectQuestions() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> localList = prefs.getStringList(_correctKey) ?? [];
+    final List<McqQuestion> localCorrect = [];
+
+    for (var item in localList) {
+      try {
+        final map = json.decode(item);
+        if (map is Map<String, dynamic>) {
+          localCorrect.add(McqQuestion.fromJson(map));
+        }
+      } catch (_) {}
+    }
+
+    try {
+      final serverItems = await ApiService.fetchCorrectMcqs();
+      if (serverItems.isNotEmpty) {
+        final List<McqQuestion> serverCorrect = [];
+        for (var jsonItem in serverItems) {
+          final raw = (jsonItem is Map && jsonItem.containsKey('question') && jsonItem['question'] != null)
+              ? jsonItem['question']
+              : (jsonItem is Map && jsonItem.containsKey('cartelloQuestion') && jsonItem['cartelloQuestion'] != null
+                  ? jsonItem['cartelloQuestion']
+                  : (jsonItem is Map && jsonItem.containsKey('cartello_question') && jsonItem['cartello_question'] != null
+                      ? jsonItem['cartello_question']
+                      : jsonItem));
+          if (raw is Map) {
+            serverCorrect.add(McqQuestion.fromJson(Map<String, dynamic>.from(raw)));
+          }
+        }
+
+        // Merge unique by Italian
+        final Map<String, McqQuestion> uniqueMap = {};
+        for (var q in serverCorrect) {
+          if (q.italian.trim().isNotEmpty) {
+            uniqueMap[_cleanKey(q.italian)] = q;
+          }
+        }
+        for (var q in localCorrect) {
+          if (q.italian.trim().isNotEmpty) {
+            uniqueMap[_cleanKey(q.italian)] = q;
+          }
+        }
+
+        final mergedList = uniqueMap.values.toList();
+        final List<String> encodedList = mergedList.map((q) => json.encode(q.toJson())).toList();
+        await prefs.setStringList(_correctKey, encodedList);
+        return mergedList;
+      }
+    } catch (e) {
+      debugPrint('Error syncing correct MCQs with server: $e');
+    }
+
+    return localCorrect;
+  }
+
+  /// Get all wrong questions (merging local + server)
+  static Future<List<McqQuestion>> getWrongQuestions() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> localList = prefs.getStringList(_wrongKey) ?? [];
+    final List<McqQuestion> localWrong = [];
+
+    for (var item in localList) {
+      try {
+        final map = json.decode(item);
+        if (map is Map<String, dynamic>) {
+          localWrong.add(McqQuestion.fromJson(map));
+        }
+      } catch (_) {}
+    }
+
+    try {
+      final serverItems = await ApiService.fetchWrongMcqs();
+      if (serverItems.isNotEmpty) {
+        final List<McqQuestion> serverWrong = [];
+        for (var jsonItem in serverItems) {
+          final raw = (jsonItem is Map && jsonItem.containsKey('question') && jsonItem['question'] != null)
+              ? jsonItem['question']
+              : (jsonItem is Map && jsonItem.containsKey('cartelloQuestion') && jsonItem['cartelloQuestion'] != null
+                  ? jsonItem['cartelloQuestion']
+                  : (jsonItem is Map && jsonItem.containsKey('cartello_question') && jsonItem['cartello_question'] != null
+                      ? jsonItem['cartello_question']
+                      : jsonItem));
+          if (raw is Map) {
+            serverWrong.add(McqQuestion.fromJson(Map<String, dynamic>.from(raw)));
+          }
+        }
+
+        // Merge unique by Italian
+        final Map<String, McqQuestion> uniqueMap = {};
+        for (var q in serverWrong) {
+          if (q.italian.trim().isNotEmpty) {
+            uniqueMap[_cleanKey(q.italian)] = q;
+          }
+        }
+        for (var q in localWrong) {
+          if (q.italian.trim().isNotEmpty) {
+            uniqueMap[_cleanKey(q.italian)] = q;
+          }
+        }
+
+        final mergedList = uniqueMap.values.toList();
+        final List<String> encodedList = mergedList.map((q) => json.encode(q.toJson())).toList();
+        await prefs.setStringList(_wrongKey, encodedList);
+        return mergedList;
+      }
+    } catch (e) {
+      debugPrint('Error syncing wrong MCQs with server: $e');
+    }
+
+    return localWrong;
   }
 }

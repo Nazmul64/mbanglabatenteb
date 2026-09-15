@@ -14,6 +14,7 @@ import '../services/html_text_helper.dart';
 import '../models/question_database.dart';
 
 class ExamResultItem {
+  final int id;
   final int index;
   final String italian;
   final String bangla;
@@ -29,6 +30,7 @@ class ExamResultItem {
   bool isSaved;
 
   ExamResultItem({
+    this.id = 0,
     required this.index,
     required this.italian,
     required this.bangla,
@@ -556,11 +558,11 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                 // 2. Bookmark / Save Button (Toggles saved state & syncs with backend)
                 _buildActionIcon(
                   icon: item.isSaved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-                  color: item.isSaved ? const Color(0xFFEF5350) : const Color(0xFF2E7D32),
-                  bgColor: item.isSaved ? const Color(0xFFEF5350).withOpacity(0.14) : Colors.transparent,
+                  color: item.isSaved ? const Color(0xFF16A34A) : const Color(0xFF2E7D32),
+                  bgColor: item.isSaved ? const Color(0xFF16A34A).withOpacity(0.16) : Colors.transparent,
                   onTap: () async {
                     final mcq = McqQuestion(
-                      id: item.index,
+                      id: item.id != 0 ? item.id : item.index,
                       chapter: item.chapter,
                       chapterName: item.chapterName,
                       italian: item.italian,
@@ -589,20 +591,20 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                 // 3. Note Button (Allows writing/editing notes & syncs to Noted MCQs)
                 _buildActionIcon(
                   icon: Icons.note_alt_outlined,
-                  color: (item.userNote != null && item.userNote!.isNotEmpty) ? const Color(0xFF10B981) : const Color(0xFF1976D2),
-                  bgColor: (item.userNote != null && item.userNote!.isNotEmpty) ? const Color(0xFF10B981).withOpacity(0.14) : Colors.transparent,
+                  color: (item.userNote != null && item.userNote!.isNotEmpty) ? const Color(0xFF16A34A) : const Color(0xFF1976D2),
+                  bgColor: (item.userNote != null && item.userNote!.isNotEmpty) ? const Color(0xFF16A34A).withOpacity(0.16) : Colors.transparent,
                   onTap: () async {
-                    final existingNote = item.userNote ?? (await BookmarkManager.getNoteForQuestion(item.italian, item.index) ?? '');
+                    final existingNote = item.userNote ?? (await BookmarkManager.getNoteForQuestion(item.italian, item.id) ?? '');
                     if (!mounted) return;
                     showDialog(
                       context: context,
                       builder: (context) => QuestionNoteDialog(
-                        questionId: '${item.index}',
+                        questionId: '${item.id != 0 ? item.id : item.index}',
                         initialNote: existingNote,
                         onSave: (note) async {
                           setState(() => item.userNote = note);
                           final mcq = McqQuestion(
-                            id: item.index,
+                            id: item.id != 0 ? item.id : item.index,
                             chapter: item.chapter,
                             chapterName: item.chapterName,
                             italian: item.italian,

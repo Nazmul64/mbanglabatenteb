@@ -112,33 +112,9 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
 
     try {
       if (widget.mode == McqScreenMode.wrong) {
-        final apiData = await ApiService.fetchWrongMcqs();
-        if (apiData.isNotEmpty) {
-          loaded = apiData.map((json) {
-            final raw = (json is Map && json.containsKey('question') && json['question'] != null)
-                ? json['question']
-                : (json is Map && json.containsKey('cartelloQuestion') && json['cartelloQuestion'] != null
-                    ? json['cartelloQuestion']
-                    : (json is Map && json.containsKey('cartello_question') && json['cartello_question'] != null
-                        ? json['cartello_question']
-                        : json));
-            return McqQuestion.fromJson(raw is Map<String, dynamic> ? raw : (json is Map<String, dynamic> ? json : {}));
-          }).where((q) => q.italian.isNotEmpty).toList();
-        }
+        loaded = await BookmarkManager.getWrongQuestions();
       } else if (widget.mode == McqScreenMode.correct) {
-        final apiData = await ApiService.fetchCorrectMcqs();
-        if (apiData.isNotEmpty) {
-          loaded = apiData.map((json) {
-            final raw = (json is Map && json.containsKey('question') && json['question'] != null)
-                ? json['question']
-                : (json is Map && json.containsKey('cartelloQuestion') && json['cartelloQuestion'] != null
-                    ? json['cartelloQuestion']
-                    : (json is Map && json.containsKey('cartello_question') && json['cartello_question'] != null
-                        ? json['cartello_question']
-                        : json));
-            return McqQuestion.fromJson(raw is Map<String, dynamic> ? raw : (json is Map<String, dynamic> ? json : {}));
-          }).where((q) => q.italian.isNotEmpty).toList();
-        }
+        loaded = await BookmarkManager.getCorrectQuestions();
       } else if (widget.mode == McqScreenMode.noted) {
         loaded = await BookmarkManager.getNotedQuestions();
       } else {
