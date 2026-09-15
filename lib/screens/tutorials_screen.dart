@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'triangle_pattern_painter.dart';
+import 'in_app_video_player_screen.dart';
 import '../services/api_service.dart';
 
 class LessonItem {
@@ -33,7 +33,7 @@ class _TutorialsScreenState extends State<TutorialsScreen> {
   bool _isLoading = false;
 
   String _getYouTubeThumbnail(String url) {
-    final regExp = RegExp(r'(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})');
+    final regExp = RegExp(r'(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=|shorts\/)|youtu\.be\/)([^"&?\/\s]{11})');
     final match = regExp.firstMatch(url);
     final id = match?.group(1) ?? '';
     return id.isNotEmpty ? 'https://img.youtube.com/vi/$id/hqdefault.jpg' : '';
@@ -55,15 +55,18 @@ class _TutorialsScreenState extends State<TutorialsScreen> {
     if (apiData.isNotEmpty) {
       for (int i = 0; i < apiData.length; i++) {
         final item = apiData[i];
-        final vUrl = (item['video_url'] ?? item['youtube_url'] ?? item['url'] ?? '').toString();
+        final vUrl = (item['video_url'] ?? item['youtube_url'] ?? item['url'] ?? item['link'] ?? '').toString();
         final ytThumb = _getYouTubeThumbnail(vUrl);
+        final title = (item['title'] ?? item['name'] ?? item['lesson_name'] ?? item['titolo'] ?? 'লেকচার ভিডিও ${i + 1}').toString();
+        final duration = (item['duration'] ?? item['durata'] ?? item['time'] ?? '').toString();
+        final language = (item['language'] ?? item['lingua'] ?? 'ভিডিও ক্লাস').toString();
 
         loaded.add(LessonItem(
-          id: item['id'] ?? (i + 1),
-          title: 'লেকচার ভিডিও ${i + 1}',
-          duration: '',
-          language: 'ইউটিউব ভিডিও',
-          imageUrl: ytThumb.isNotEmpty ? ytThumb : (item['image'] ?? item['thumbnail'] ?? '').toString(),
+          id: item['id'] is int ? item['id'] : (int.tryParse(item['id']?.toString() ?? '') ?? (i + 1)),
+          title: title,
+          duration: duration,
+          language: language,
+          imageUrl: ytThumb.isNotEmpty ? ytThumb : (item['image'] ?? item['thumbnail'] ?? item['image_url'] ?? '').toString(),
           videoUrl: vUrl,
         ));
       }
@@ -77,18 +80,27 @@ class _TutorialsScreenState extends State<TutorialsScreen> {
     }
   }
 
-  Future<void> _openVideo(String url) async {
-    if (url.trim().isEmpty) return;
-    final uri = Uri.parse(url);
-    try {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        await launchUrl(uri);
-      }
-    } catch (e) {
-      debugPrint('Error launching video URL $url: $e');
+  void _openLesson(LessonItem lesson, int index) {
+    if (lesson.videoUrl.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('ভিডিও লিংক পাওয়া যায়নি'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
     }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => InAppVideoPlayerScreen(
+          lesson: lesson,
+          allLessons: _lessons,
+          initialIndex: index,
+        ),
+      ),
+    );
   }
 
   @override
@@ -174,7 +186,7 @@ class _TutorialsScreenState extends State<TutorialsScreen> {
                         separatorBuilder: (context, index) => const SizedBox(height: 14),
                         itemBuilder: (context, index) {
                           final lesson = _lessons[index];
-                          return _buildLessonCard(lesson, isDark);
+                          return _buildLessonCard(lesson, index, isDark);
                         },
                       ),
           ),
@@ -183,9 +195,9 @@ class _TutorialsScreenState extends State<TutorialsScreen> {
     );
   }
 
-  Widget _buildLessonCard(LessonItem lesson, bool isDark) {
+  Widget _buildLessonCard(LessonItem lesson, int index, bool isDark) {
     return InkWell(
-      onTap: () => _openVideo(lesson.videoUrl),
+      onTap: () => _openLesson(lesson, index),
       borderRadius: BorderRadius.circular(16),
       child: Container(
         padding: const EdgeInsets.all(12),
