@@ -8,8 +8,11 @@ import '../models/slider_model.dart';
 class ApiService {
   static const List<String> candidateBaseUrls = [
     'http://127.0.0.1:8000/api/v1',
-    'http://10.0.2.2:8000/api/v1',
     'http://localhost:8000/api/v1',
+    'http://192.168.0.101:8000/api/v1',
+    'http://192.168.0.102:8000/api/v1',
+    'http://192.168.42.184:8000/api/v1',
+    'http://10.0.2.2:8000/api/v1',
   ];
 
   static String? _resolvedBaseUrl;
@@ -35,7 +38,7 @@ class ApiService {
     for (final base in candidateBaseUrls) {
       try {
         final uri = Uri.parse('$base/settings');
-        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 6));
+        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 2));
         if (response.statusCode == 200) {
           _resolvedBaseUrl = base;
           final decoded = json.decode(response.body);
@@ -110,7 +113,7 @@ class ApiService {
     if (_resolvedBaseUrl != null) {
       try {
         final uri = Uri.parse('$_resolvedBaseUrl$endpoint').replace(queryParameters: queryParameters);
-        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 8));
+        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 4));
         if (response.statusCode == 200) {
           if (useCache) _apiResponseCache[cacheKey] = response;
           return response;
@@ -123,7 +126,7 @@ class ApiService {
     for (final base in candidateBaseUrls) {
       try {
         final uri = Uri.parse('$base$endpoint').replace(queryParameters: queryParameters);
-        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 8));
+        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 3));
         if (response.statusCode == 200) {
           _resolvedBaseUrl = base;
           if (useCache) _apiResponseCache[cacheKey] = response;
