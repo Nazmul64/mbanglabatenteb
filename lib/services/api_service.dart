@@ -9,16 +9,15 @@ import '../models/slider_model.dart';
 import '../models/home_card_model.dart';
 
 class ApiService {
+  static const String liveProductionUrl = 'https://mbanglapatenteb.com/api/v1';
+  static const String liveOrigin = 'https://mbanglapatenteb.com';
+
   static const List<String> candidateBaseUrls = [
-    'http://127.0.0.1:8000/api/v1',
-    'http://localhost:8000/api/v1',
-    'http://192.168.0.101:8000/api/v1',
-    'http://192.168.0.102:8000/api/v1',
-    'http://192.168.42.184:8000/api/v1',
-    'http://10.0.2.2:8000/api/v1',
+    'https://mbanglapatenteb.com/api/v1',
+    'https://mbanglapatenteb.com/api',
   ];
 
-  static String? _resolvedBaseUrl;
+  static String? _resolvedBaseUrl = 'https://mbanglapatenteb.com/api/v1';
   static String? _activeSessionId;
   static String? _activeClientPhone;
 
@@ -31,39 +30,29 @@ class ApiService {
   static void clearAllCache() {
     _apiResponseCache.clear();
     _cachedLiveExamPool = null;
-    _resolvedBaseUrl = null;
+    _resolvedBaseUrl = liveProductionUrl;
     debugPrint('🧹 ApiService: All in-memory API caches cleared.');
   }
 
   /// Initialize server configuration by probing live URLs and fetching active settings
   static Future<void> initServerConfig() async {
+    _resolvedBaseUrl = liveProductionUrl;
     try {
       final prefs = await SharedPreferences.getInstance();
-      final cached = prefs.getString('app_cached_base_url');
-      if (cached != null && cached.isNotEmpty) {
-        _resolvedBaseUrl = cached;
+      await prefs.setString('app_cached_base_url', liveProductionUrl);
+
+      // Probe live server settings
+      final uri = Uri.parse('$liveProductionUrl/settings');
+      final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        final decoded = json.decode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          _checkAndApplyServerMode(decoded, currentCandidate: liveProductionUrl);
+        }
       }
-
-      // Fast concurrent race across all candidates to verify / update active server
-      final futures = candidateBaseUrls.map((base) async {
-        try {
-          final uri = Uri.parse('$base/settings');
-          final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 1500));
-          if (response.statusCode == 200) {
-            _resolvedBaseUrl = base;
-            await prefs.setString('app_cached_base_url', base);
-            final decoded = json.decode(response.body);
-            if (decoded is Map<String, dynamic>) {
-              _checkAndApplyServerMode(decoded, currentCandidate: base);
-            }
-            return base;
-          }
-        } catch (_) {}
-        return null;
-      });
-
-      await Future.wait(futures);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Live Server Probe Note: $e');
+    }
   }
 
   /// Inspect setting response payload to set server mode & active base URL dynamically
@@ -105,9 +94,9 @@ class ApiService {
     final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
     var cleanPath = path.trim();
 
-    // Dynamically replace any localhost or local dev IP in stored URLs with the current active reachable server origin
+    // Dynamically replace any localhost or local dev IP in stored URLs with the live production origin
     cleanPath = cleanPath.replaceAll(
-      RegExp(r'https?://(?:127\.0\.0\.1|localhost|192\.168\.\d+\.\d+|10\.0\.2\.2):8000'),
+      RegExp(r'https?://(?:127\.0\.0\.1|localhost|192\.168\.\d+\.\d+|10\.0\.2\.2)(?::\d+)?'),
       serverOrigin,
     );
 

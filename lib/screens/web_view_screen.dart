@@ -23,12 +23,11 @@ class WebViewScreen extends StatefulWidget {
       cleanUrl = 'http://';
     }
 
-    // Resolve localhost/127.0.0.1 for mobile app accessibility
-    cleanUrl = cleanUrl
-        .replaceAll('http://127.0.0.1:8000', baseOrigin)
-        .replaceAll('http://localhost:8000', baseOrigin)
-        .replaceAll('https://127.0.0.1:8000', baseOrigin)
-        .replaceAll('https://localhost:8000', baseOrigin);
+    // Resolve localhost / local IP addresses for live mobile app accessibility
+    cleanUrl = cleanUrl.replaceAll(
+      RegExp(r'https?://(?:127\.0\.0\.1|localhost|192\.168\.\d+\.\d+|10\.0\.2\.2)(?::\d+)?'),
+      baseOrigin,
+    );
 
     return cleanUrl;
   }
