@@ -877,16 +877,9 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
 
     final hasImage = (msg.attachmentPath != null && msg.attachmentPath!.isNotEmpty) || msg.localFile != null;
 
-    String? fullImageUrl;
-    if (msg.attachmentPath != null && msg.attachmentPath!.isNotEmpty) {
-      if (msg.attachmentPath!.startsWith('http')) {
-        fullImageUrl = msg.attachmentPath;
-      } else {
-        final origin = ApiService.baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
-        final cleanPath = msg.attachmentPath!.startsWith('/') ? msg.attachmentPath! : '/${msg.attachmentPath!}';
-        fullImageUrl = '$origin$cleanPath';
-      }
-    }
+    final String? fullImageUrl = (msg.attachmentPath != null && msg.attachmentPath!.isNotEmpty)
+        ? ApiService.formatImageUrl(msg.attachmentPath)
+        : null;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),

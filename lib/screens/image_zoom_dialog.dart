@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 
@@ -46,7 +47,8 @@ class _ImageZoomDialogState extends State<ImageZoomDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final fullUrl = ApiService.formatImageUrl(widget.imageUrl);
+    final isLocalFile = File(widget.imageUrl).existsSync();
+    final fullUrl = isLocalFile ? widget.imageUrl : ApiService.formatImageUrl(widget.imageUrl);
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -84,33 +86,38 @@ class _ImageZoomDialogState extends State<ImageZoomDialog> {
                         minScale: 0.8,
                         maxScale: 5.0,
                         boundaryMargin: const EdgeInsets.all(20),
-                        child: Image.network(
-                          fullUrl,
-                          fit: BoxFit.contain,
-                          loadingBuilder: (context, child, loadingProgress) {
-                            if (loadingProgress == null) return child;
-                            return const SizedBox(
-                              height: 220,
-                              child: Center(
-                                child: CircularProgressIndicator(color: Color(0xFF22C55E)),
+                        child: isLocalFile
+                            ? Image.file(
+                                File(widget.imageUrl),
+                                fit: BoxFit.contain,
+                              )
+                            : Image.network(
+                                fullUrl,
+                                fit: BoxFit.contain,
+                                loadingBuilder: (context, child, loadingProgress) {
+                                  if (loadingProgress == null) return child;
+                                  return const SizedBox(
+                                    height: 220,
+                                    child: Center(
+                                      child: CircularProgressIndicator(color: Color(0xFF22C55E)),
+                                    ),
+                                  );
+                                },
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Container(
+                                    height: 200,
+                                    alignment: Alignment.center,
+                                    child: const Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(Icons.broken_image_rounded, size: 48, color: Colors.grey),
+                                        SizedBox(height: 8),
+                                        Text('ছবি লোড করা যায়নি', style: TextStyle(color: Colors.grey)),
+                                      ],
+                                    ),
+                                  );
+                                },
                               ),
-                            );
-                          },
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              height: 200,
-                              alignment: Alignment.center,
-                              child: const Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.broken_image_rounded, size: 48, color: Colors.grey),
-                                  SizedBox(height: 8),
-                                  Text('ছবি লোড করা যায়নি', style: TextStyle(color: Colors.grey)),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
                       ),
                     ),
                   ),

@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/slider_model.dart';
 import '../models/home_card_model.dart';
@@ -1278,16 +1280,101 @@ class ApiService {
     return [];
   }
 
-  /// Send live chat message from client
+  /// Direct Image & Screenshot Upload to /chat/upload-image (saved in public/uploads/live_chat/)
+  static Future<String?> uploadChatImage(File imageFile) async {
+    try {
+      if (!imageFile.existsSync()) return null;
+
+      final endpoints = [
+        '/chat/upload-image',
+        '/support/upload-image',
+      ];
+
+      final extension = imageFile.path.split('.').last.toLowerCase();
+      String mimeType = 'image/jpeg';
+      if (extension == 'png') {
+        mimeType = 'image/png';
+      } else if (extension == 'webp') {
+        mimeType = 'image/webp';
+      } else if (extension == 'gif') {
+        mimeType = 'image/gif';
+      }
+
+      final activeBases = _resolvedBaseUrl != null
+          ? [_resolvedBaseUrl!, ...candidateBaseUrls.where((b) => b != _resolvedBaseUrl)]
+          : candidateBaseUrls;
+
+      for (final base in activeBases) {
+        for (final ep in endpoints) {
+          try {
+            final uri = Uri.parse('$base$ep');
+            final request = http.MultipartRequest('POST', uri);
+            request.headers.addAll({
+              'Accept': 'application/json',
+              if (_authToken != null) 'Authorization': 'Bearer $_authToken',
+            });
+
+            request.files.add(
+              await http.MultipartFile.fromPath(
+                'image',
+                imageFile.path,
+                contentType: MediaType.parse(mimeType),
+              ),
+            );
+
+            final streamedResponse = await request.send().timeout(const Duration(seconds: 12));
+            final response = await http.Response.fromStream(streamedResponse);
+
+            if (response.statusCode == 200 || response.statusCode == 201) {
+              _resolvedBaseUrl = base;
+              final data = json.decode(response.body);
+              final uploadedUrl = (data['image_url'] ??
+                      data['attachment_path'] ??
+                      data['url'] ??
+                      data['file_path'] ??
+                      data['data']?['attachment_path'] ??
+                      data['data']?['image_url'])
+                  ?.toString();
+              if (uploadedUrl != null && uploadedUrl.isNotEmpty) {
+                return uploadedUrl;
+              }
+            }
+          } catch (e) {
+            debugPrint('Error uploading chat image to $base$ep: $e');
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('General error uploading chat image: $e');
+    }
+    return null;
+  }
+
+  /// Send live chat message from client with optional image attachment
   static Future<bool> sendChatMessage(
     String message, [
     String? sessionId,
     String? phone,
     String? firstName,
     String? lastName,
-    String? attachmentPath,
+    String? localOrServerAttachmentPath,
   ]) async {
     try {
+      String? serverAttachmentPath;
+      File? localImageFile;
+
+      // If a local file path was provided, upload it to the server first
+      if (localOrServerAttachmentPath != null && localOrServerAttachmentPath.isNotEmpty) {
+        final localFile = File(localOrServerAttachmentPath);
+        if (localFile.existsSync()) {
+          localImageFile = localFile;
+          serverAttachmentPath = await uploadChatImage(localFile);
+          debugPrint('Uploaded chat image path: $serverAttachmentPath');
+        } else {
+          serverAttachmentPath = localOrServerAttachmentPath;
+        }
+      }
+
       final payload = <String, dynamic>{
         'message': message,
         if (sessionId != null && sessionId.isNotEmpty) ...{
@@ -1308,7 +1395,11 @@ class ApiService {
           'last_name': lastName,
           'lastName': lastName,
         },
-        if (attachmentPath != null && attachmentPath.isNotEmpty) 'attachment_path': attachmentPath,
+        if (serverAttachmentPath != null && serverAttachmentPath.isNotEmpty) ...{
+          'attachment_path': serverAttachmentPath,
+          'attachment': serverAttachmentPath,
+          'image_url': serverAttachmentPath,
+        },
       };
 
       // 1. Primary: /support/messages
@@ -1321,6 +1412,43 @@ class ApiService {
       final resp2 = await _postWithFallback('/chat/messages', payload);
       if (resp2 != null && (resp2.statusCode == 200 || resp2.statusCode == 201)) {
         return true;
+      }
+
+      // 3. Fallback: direct multipart request if JSON failed and local file is available
+      if (localImageFile != null) {
+        final activeBases = _resolvedBaseUrl != null
+            ? [_resolvedBaseUrl!, ...candidateBaseUrls.where((b) => b != _resolvedBaseUrl)]
+            : candidateBaseUrls;
+
+        for (final base in activeBases) {
+          for (final ep in ['/chat/messages', '/support/messages']) {
+            try {
+              final uri = Uri.parse('$base$ep');
+              final request = http.MultipartRequest('POST', uri);
+              request.headers['Accept'] = 'application/json';
+              if (_authToken != null) request.headers['Authorization'] = 'Bearer $_authToken';
+
+              if (sessionId != null && sessionId.isNotEmpty) request.fields['session_id'] = sessionId;
+              if (phone != null && phone.isNotEmpty) request.fields['phone'] = phone;
+              if (firstName != null && firstName.isNotEmpty) request.fields['first_name'] = firstName;
+              if (lastName != null && lastName.isNotEmpty) request.fields['last_name'] = lastName;
+              request.fields['message'] = message.isNotEmpty ? message : 'ছবি পাঠানো হয়েছে';
+              if (serverAttachmentPath != null) request.fields['attachment_path'] = serverAttachmentPath;
+
+              final extension = localImageFile.path.split('.').last.toLowerCase();
+              final mime = extension == 'png' ? 'image/png' : 'image/jpeg';
+              request.files.add(
+                await http.MultipartFile.fromPath('image', localImageFile.path, contentType: MediaType.parse(mime)),
+              );
+
+              final streamed = await request.send().timeout(const Duration(seconds: 12));
+              final res = await http.Response.fromStream(streamed);
+              if (res.statusCode == 200 || res.statusCode == 201) {
+                return true;
+              }
+            } catch (_) {}
+          }
+        }
       }
     } catch (e) {
       debugPrint('Error sending chat message: $e');
