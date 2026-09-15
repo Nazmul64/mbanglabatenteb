@@ -80,7 +80,6 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     String lastName = (prefs.getString('app_client_last_name') ?? '').trim();
     _sessionId = prefs.getString('app_client_session_id') ?? 'app_${DateTime.now().millisecondsSinceEpoch}';
     _isActive = prefs.getBool('app_client_is_active') ?? false;
-    final bool isLocallyVerified = prefs.getBool('app_client_is_verified') ?? false;
 
     // Clean up any legacy dummy defaults
     if (firstName.toLowerCase() == 'customer' && (lastName.toLowerCase() == 'user' || lastName.isEmpty)) {
@@ -105,27 +104,12 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     _lastNameController.text = lastName;
     _phoneController.text = _userPhone;
 
-    // Instant UI rendering (0ms delay) using local storage
-    final bool hasValidLocalInfo = isLocallyVerified ||
-        (_userPhone.isNotEmpty &&
-            firstName.isNotEmpty &&
-            lastName.isNotEmpty &&
-            firstName.toLowerCase() != 'customer');
-
-    if (hasValidLocalInfo) {
-      setState(() {
-        _userPhone = _userPhone;
-        _userName = '$firstName $lastName'.trim();
-        _isVerified = true;
-        _isInitialLoading = false;
-      });
-      _startChatPolling();
-    } else {
-      setState(() {
-        _isVerified = false;
-        _isInitialLoading = false;
-      });
-    }
+    // Show verification form on entry so user can review/update details or proceed
+    setState(() {
+      _userName = '$firstName $lastName'.trim();
+      _isVerified = false;
+      _isInitialLoading = false;
+    });
 
     // Refresh status from server asynchronously in the background without blocking UI
     ApiService.fetchClientStatus(sessionId: _sessionId, phone: _userPhone).then((statusData) async {
@@ -149,17 +133,15 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
         await prefs.setString('app_client_last_name', effectiveLastName);
         await prefs.setString('app_client_phone', effectivePhone);
         await prefs.setBool('app_client_is_active', isServerActive);
-        await prefs.setBool('app_client_is_verified', true);
 
         if (mounted) {
-          _firstNameController.text = effectiveFirstName;
-          _lastNameController.text = effectiveLastName;
-          _phoneController.text = effectivePhone;
+          if (_firstNameController.text.isEmpty) _firstNameController.text = effectiveFirstName;
+          if (_lastNameController.text.isEmpty) _lastNameController.text = effectiveLastName;
+          if (_phoneController.text.isEmpty) _phoneController.text = effectivePhone;
           setState(() {
             _userPhone = effectivePhone;
             _userName = '$effectiveFirstName $effectiveLastName'.trim();
             _isActive = isServerActive;
-            _isVerified = true;
           });
         }
       } else {
@@ -535,8 +517,10 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                _userName.isNotEmpty ? '$_userName (Online Support)' : 'admin (Online Support)',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
+                _isVerified
+                    ? (_userName.isNotEmpty ? '$_userName (Online Support)' : 'Online Support')
+                    : 'Online Support',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -550,15 +534,16 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          IconButton(
-            icon: Icon(_isVerified ? Icons.edit_note_rounded : Icons.chat_rounded, color: Colors.white),
-            tooltip: _isVerified ? 'তথ্য পরিবর্তন / ভেরিফিকেশন ফরম' : 'চ্যাটে ফিরে যান',
-            onPressed: () {
-              setState(() {
-                _isVerified = !_isVerified;
-              });
-            },
-          ),
+          if (_isVerified)
+            IconButton(
+              icon: const Icon(Icons.edit_note_rounded, color: Colors.white),
+              tooltip: 'তথ্য পরিবর্তন / ভেরিফিকেশন ফরম',
+              onPressed: () {
+                setState(() {
+                  _isVerified = false;
+                });
+              },
+            ),
         ],
       ),
       body: !_isVerified ? _buildVerificationForm(isDark) : _buildChatBody(isDark),
