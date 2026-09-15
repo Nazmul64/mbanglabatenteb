@@ -26,6 +26,7 @@ class ExamResultItem {
   final List<dynamic>? vocabulary;
   final Map<String, String> vocabularyHelp;
   String? userNote;
+  bool isSaved;
 
   ExamResultItem({
     required this.index,
@@ -40,6 +41,7 @@ class ExamResultItem {
     this.vocabulary,
     this.vocabularyHelp = const {},
     this.userNote,
+    this.isSaved = false,
   });
 
   bool get isAttempted => userSelectedVero != null;
@@ -77,6 +79,22 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
   void initState() {
     super.initState();
     _initAudioHandlers();
+    _loadSavedStatusAndNotes();
+  }
+
+  Future<void> _loadSavedStatusAndNotes() async {
+    for (var item in widget.results) {
+      final isSaved = await BookmarkManager.isSaved(item.italian, item.index);
+      final note = await BookmarkManager.getNoteForQuestion(item.italian, item.index);
+      if (mounted) {
+        setState(() {
+          item.isSaved = isSaved;
+          if (note != null && note.isNotEmpty) {
+            item.userNote = note;
+          }
+        });
+      }
+    }
   }
 
   void _initAudioHandlers() {
@@ -523,7 +541,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
             ),
             const SizedBox(height: 12),
 
-            // Action Buttons Row (Speaker, Bookmark, Notes, Tutor, MCQ List, Translate, Book Info)
+            // Action Buttons Row (Speaker, Bookmark, Notes, Tutor, MCQ List, Translate)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
@@ -535,11 +553,11 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                   onTap: () => _speakItalian(item.index, item.italian),
                 ),
 
-                // 2. Green Bookmark Button
+                // 2. Bookmark / Save Button (Toggles saved state & syncs with backend)
                 _buildActionIcon(
-                  icon: Icons.bookmark_border_rounded,
-                  color: const Color(0xFF2E7D32),
-                  bgColor: Colors.transparent,
+                  icon: item.isSaved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+                  color: item.isSaved ? const Color(0xFFEF5350) : const Color(0xFF2E7D32),
+                  bgColor: item.isSaved ? const Color(0xFFEF5350).withOpacity(0.14) : Colors.transparent,
                   onTap: () async {
                     final mcq = McqQuestion(
                       id: item.index,
@@ -552,20 +570,27 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                       audio: item.audio,
                       vocabulary: item.vocabulary,
                     );
-                    await BookmarkManager.saveQuestion(mcq);
+                    final isNowSaved = await BookmarkManager.toggleBookmark(mcq);
                     if (mounted) {
+                      setState(() {
+                        item.isSaved = isNowSaved;
+                      });
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('প্রশ্নটি সেভ করা হয়েছে')),
+                        SnackBar(
+                          content: Text(isNowSaved ? 'প্রশ্নটি সেভ করা হয়েছে' : 'প্রশ্নটি আনসেভ করা হয়েছে'),
+                          duration: const Duration(seconds: 2),
+                          behavior: SnackBarBehavior.floating,
+                        ),
                       );
                     }
                   },
                 ),
 
-                // 3. Note Button
+                // 3. Note Button (Allows writing/editing notes & syncs to Noted MCQs)
                 _buildActionIcon(
                   icon: Icons.note_alt_outlined,
                   color: (item.userNote != null && item.userNote!.isNotEmpty) ? const Color(0xFF10B981) : const Color(0xFF1976D2),
-                  bgColor: (item.userNote != null && item.userNote!.isNotEmpty) ? const Color(0xFF10B981).withOpacity(0.12) : Colors.transparent,
+                  bgColor: (item.userNote != null && item.userNote!.isNotEmpty) ? const Color(0xFF10B981).withOpacity(0.14) : Colors.transparent,
                   onTap: () async {
                     final existingNote = item.userNote ?? (await BookmarkManager.getNoteForQuestion(item.italian, item.index) ?? '');
                     if (!mounted) return;
@@ -592,7 +617,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text(note.isNotEmpty ? 'নোট সফলভাবে সংরক্ষণ করা হয়েছে' : 'নোট মুছে ফেলা হয়েছে'),
+                                content: Text(note.isNotEmpty ? 'নোট সফলভাবে সংরক্ষণ করা হয়েছে' : 'নোট মুছে ফেলা হয়েছে'),
                                 duration: const Duration(seconds: 2),
                                 behavior: SnackBarBehavior.floating,
                               ),
@@ -654,7 +679,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                   onTap: () {},
                 ),
 
-                // 6. Purple Translate Button (অ আ / A)
+                // 6. Purple Translate Button (Opens popup with clickable underlined vocabulary words)
                 _buildActionIcon(
                   icon: Icons.translate_rounded,
                   color: const Color(0xFF7B1FA2),
@@ -669,16 +694,6 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                         vocabulary: item.vocabulary,
                       ),
                     );
-                  },
-                ),
-
-                // 7. Info Book Button
-                _buildActionIcon(
-                  icon: Icons.menu_book_rounded,
-                  color: const Color(0xFF00838F),
-                  bgColor: Colors.transparent,
-                  onTap: () {
-                    _showTheoryDialog(item);
                   },
                 ),
               ],

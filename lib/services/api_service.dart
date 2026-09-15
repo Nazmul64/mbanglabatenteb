@@ -34,21 +34,33 @@ class ApiService {
 
   /// Initialize server configuration by probing live URLs and fetching active settings
   static Future<void> initServerConfig() async {
-    clearAllCache();
-    for (final base in candidateBaseUrls) {
-      try {
-        final uri = Uri.parse('$base/settings');
-        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 2));
-        if (response.statusCode == 200) {
-          _resolvedBaseUrl = base;
-          final decoded = json.decode(response.body);
-          if (decoded is Map<String, dynamic>) {
-            _checkAndApplyServerMode(decoded, currentCandidate: base);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString('app_cached_base_url');
+      if (cached != null && cached.isNotEmpty) {
+        _resolvedBaseUrl = cached;
+      }
+
+      // Fast concurrent race across all candidates to verify / update active server
+      final futures = candidateBaseUrls.map((base) async {
+        try {
+          final uri = Uri.parse('$base/settings');
+          final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 1500));
+          if (response.statusCode == 200) {
+            _resolvedBaseUrl = base;
+            await prefs.setString('app_cached_base_url', base);
+            final decoded = json.decode(response.body);
+            if (decoded is Map<String, dynamic>) {
+              _checkAndApplyServerMode(decoded, currentCandidate: base);
+            }
+            return base;
           }
-          break;
-        }
-      } catch (_) {}
-    }
+        } catch (_) {}
+        return null;
+      });
+
+      await Future.wait(futures);
+    } catch (_) {}
   }
 
   /// Inspect setting response payload to set server mode & active base URL dynamically
@@ -113,31 +125,37 @@ class ApiService {
     if (_resolvedBaseUrl != null) {
       try {
         final uri = Uri.parse('$_resolvedBaseUrl$endpoint').replace(queryParameters: queryParameters);
-        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 4));
+        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 2500));
         if (response.statusCode == 200) {
           if (useCache) _apiResponseCache[cacheKey] = response;
           return response;
         }
-      } catch (_) {
-        _resolvedBaseUrl = null;
-      }
+      } catch (_) {}
     }
 
+    // Fast parallel race across all candidate base URLs
+    final completer = Completer<http.Response?>();
+    int pending = candidateBaseUrls.length;
+
     for (final base in candidateBaseUrls) {
-      try {
-        final uri = Uri.parse('$base$endpoint').replace(queryParameters: queryParameters);
-        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 3));
-        if (response.statusCode == 200) {
+      final uri = Uri.parse('$base$endpoint').replace(queryParameters: queryParameters);
+      http.get(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 2500)).then((resp) {
+        if (resp.statusCode == 200 && !completer.isCompleted) {
           _resolvedBaseUrl = base;
-          if (useCache) _apiResponseCache[cacheKey] = response;
-          debugPrint('Active API Base URL resolved: $base');
-          return response;
+          SharedPreferences.getInstance().then((p) => p.setString('app_cached_base_url', base)).catchError((_) => false);
+          if (useCache) _apiResponseCache[cacheKey] = resp;
+          completer.complete(resp);
+        } else {
+          pending--;
+          if (pending == 0 && !completer.isCompleted) completer.complete(null);
         }
-      } catch (e) {
-        debugPrint('Candidate URL $base failed for GET $endpoint');
-      }
+      }).catchError((_) {
+        pending--;
+        if (pending == 0 && !completer.isCompleted) completer.complete(null);
+      });
     }
-    return null;
+
+    return completer.future;
   }
 
   /// Helper to perform HTTP POST with dynamic candidate URL resolution & fallback
@@ -147,29 +165,33 @@ class ApiService {
         final uri = Uri.parse('$_resolvedBaseUrl$endpoint');
         final response = await http
             .post(uri, headers: defaultHeaders, body: json.encode(body))
-            .timeout(const Duration(seconds: 8));
+            .timeout(const Duration(milliseconds: 3000));
         if (response.statusCode == 200 || response.statusCode == 201) return response;
-      } catch (_) {
-        _resolvedBaseUrl = null;
-      }
+      } catch (_) {}
     }
 
+    // Parallel attempt across candidates
+    final completer = Completer<http.Response?>();
+    int pending = candidateBaseUrls.length;
+
     for (final base in candidateBaseUrls) {
-      try {
-        final uri = Uri.parse('$base$endpoint');
-        final response = await http
-            .post(uri, headers: defaultHeaders, body: json.encode(body))
-            .timeout(const Duration(seconds: 8));
-        if (response.statusCode == 200 || response.statusCode == 201) {
+      final uri = Uri.parse('$base$endpoint');
+      http.post(uri, headers: defaultHeaders, body: json.encode(body)).timeout(const Duration(milliseconds: 3000)).then((resp) {
+        if ((resp.statusCode == 200 || resp.statusCode == 201) && !completer.isCompleted) {
           _resolvedBaseUrl = base;
-          debugPrint('Active API Base URL resolved: $base');
-          return response;
+          SharedPreferences.getInstance().then((p) => p.setString('app_cached_base_url', base)).catchError((_) => false);
+          completer.complete(resp);
+        } else {
+          pending--;
+          if (pending == 0 && !completer.isCompleted) completer.complete(null);
         }
-      } catch (e) {
-        debugPrint('Candidate URL $base failed for POST $endpoint');
-      }
+      }).catchError((_) {
+        pending--;
+        if (pending == 0 && !completer.isCompleted) completer.complete(null);
+      });
     }
-    return null;
+
+    return completer.future;
   }
 
   /// Helper to perform HTTP DELETE with dynamic candidate URL resolution & fallback
@@ -177,25 +199,20 @@ class ApiService {
     if (_resolvedBaseUrl != null) {
       try {
         final uri = Uri.parse('$_resolvedBaseUrl$endpoint');
-        final response = await http.delete(uri, headers: defaultHeaders).timeout(const Duration(seconds: 8));
+        final response = await http.delete(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 3000));
         if (response.statusCode == 200 || response.statusCode == 204) return response;
-      } catch (_) {
-        _resolvedBaseUrl = null;
-      }
+      } catch (_) {}
     }
 
     for (final base in candidateBaseUrls) {
       try {
         final uri = Uri.parse('$base$endpoint');
-        final response = await http.delete(uri, headers: defaultHeaders).timeout(const Duration(seconds: 8));
+        final response = await http.delete(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 3000));
         if (response.statusCode == 200 || response.statusCode == 204) {
           _resolvedBaseUrl = base;
-          debugPrint('Active API Base URL resolved: $base');
           return response;
         }
-      } catch (e) {
-        debugPrint('Candidate URL $base failed for DELETE $endpoint');
-      }
+      } catch (_) {}
     }
     return null;
   }
@@ -662,9 +679,12 @@ class ApiService {
   // 📌 9. Saved MCQs & Notes API
   // ─────────────────────────────────────────────────────
   /// GET /api/v1/saved-mcqs
-  static Future<List<dynamic>> fetchSavedMcqs() async {
+  static Future<List<dynamic>> fetchSavedMcqs({String? sessionId, String? phone, int? userId}) async {
     try {
       final params = await _getUserAuthParams();
+      if (sessionId != null && sessionId.isNotEmpty) params['session_id'] = sessionId;
+      if (phone != null && phone.isNotEmpty) params['phone'] = phone;
+      if (userId != null) params['user_id'] = '$userId';
       final response = await _getWithFallback('/saved-mcqs', queryParameters: params.isNotEmpty ? params : null);
       return _extractList(response);
     } catch (e) {
@@ -674,14 +694,22 @@ class ApiService {
   }
 
   /// POST /api/v1/saved-mcqs/toggle
-  static Future<Map<String, dynamic>?> toggleSavedMcq(dynamic questionId, {String? type, String? italian}) async {
+  static Future<Map<String, dynamic>?> toggleSavedMcq(
+    dynamic questionId, {
+    String? type = 'argomenti',
+    String? italian,
+    String? sessionId,
+    String? phone,
+  }) async {
     try {
       final authParams = await _getUserAuthParams();
       final body = <String, dynamic>{
         'question_id': questionId,
         if (italian != null && italian.isNotEmpty) 'italian': italian,
-        if (type != null && type.isNotEmpty) 'type': type,
+        'type': type ?? 'argomenti',
         ...authParams,
+        if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
+        if (phone != null && phone.isNotEmpty) 'phone': phone,
       };
       final response = await _postWithFallback('/saved-mcqs/toggle', body);
       return _extractMap(response);
@@ -692,9 +720,12 @@ class ApiService {
   }
 
   /// GET /api/v1/noted-mcqs
-  static Future<List<dynamic>> fetchNotedMcqs() async {
+  static Future<List<dynamic>> fetchNotedMcqs({String? sessionId, String? phone, int? userId}) async {
     try {
       final params = await _getUserAuthParams();
+      if (sessionId != null && sessionId.isNotEmpty) params['session_id'] = sessionId;
+      if (phone != null && phone.isNotEmpty) params['phone'] = phone;
+      if (userId != null) params['user_id'] = '$userId';
       final response = await _getWithFallback('/noted-mcqs', queryParameters: params.isNotEmpty ? params : null) ??
           await _getWithFallback('/notes', queryParameters: params.isNotEmpty ? params : null);
       return _extractList(response);
@@ -705,18 +736,30 @@ class ApiService {
   }
 
   /// GET /api/v1/notes (alias for backward compatibility)
-  static Future<List<dynamic>> fetchNotes() => fetchNotedMcqs();
+  static Future<List<dynamic>> fetchNotes({String? sessionId, String? phone, int? userId}) =>
+      fetchNotedMcqs(sessionId: sessionId, phone: phone, userId: userId);
 
   /// POST /api/v1/noted-mcqs/save (or /notes)
-  static Future<bool> saveNote({required dynamic questionId, required String note, String? type}) async {
+  static Future<bool> saveNote({
+    required dynamic questionId,
+    required String note,
+    int? pageId,
+    String? type = 'argomenti',
+    String? sessionId,
+    String? phone,
+  }) async {
     try {
       final authParams = await _getUserAuthParams();
       final payload = {
         'question_id': questionId,
+        if (pageId != null) 'page_id': pageId,
         'note': note,
         'note_text': note,
-        if (type != null && type.isNotEmpty) 'type': type,
+        'text': note,
+        'type': type ?? 'argomenti',
         ...authParams,
+        if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
+        if (phone != null && phone.isNotEmpty) 'phone': phone,
       };
       final response = await _postWithFallback('/noted-mcqs/save', payload) ??
           await _postWithFallback('/notes', payload);
@@ -731,7 +774,8 @@ class ApiService {
   static Future<bool> deleteNote(dynamic noteId) async {
     try {
       final response = await _deleteWithFallback('/noted-mcqs/$noteId') ??
-          await _deleteWithFallback('/notes/$noteId');
+          await _deleteWithFallback('/notes/$noteId') ??
+          await _postWithFallback('/noted-mcqs/delete', {'id': noteId, 'question_id': noteId});
       return response != null && (response.statusCode == 200 || response.statusCode == 204);
     } catch (e) {
       debugPrint('Error deleting note: $e');
@@ -1360,29 +1404,48 @@ class ApiService {
   // ─────────────────────────────────────────────────────
   // 📌 16. Translation API
   // ─────────────────────────────────────────────────────
-  /// POST /api/translate
+  /// POST /api/v1/translate (or fallback GET /api/v1/translate)
   static Future<Map<String, dynamic>?> translateText({
     required String text,
-    required String fromLang,
-    required String toLang,
+    String fromLang = 'it',
+    String toLang = 'bn',
   }) async {
     try {
-      final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
-      final uri = Uri.parse('$serverOrigin/api/translate');
-      final body = {
+      final payload = {
         'text': text,
         'from_lang': fromLang,
         'to_lang': toLang,
       };
-      final response = await http.post(uri, headers: defaultHeaders, body: json.encode(body)).timeout(const Duration(seconds: 6));
-      if (response.statusCode == 200) {
+      final response = await _postWithFallback('/translate', payload);
+      if (response != null && response.statusCode == 200) {
         return json.decode(response.body);
       }
-      return null;
+      final resp2 = await _getWithFallback('/translate', queryParameters: {'text': text, 'from_lang': fromLang, 'to_lang': toLang});
+      if (resp2 != null && resp2.statusCode == 200) {
+        return json.decode(resp2.body);
+      }
     } catch (e) {
       debugPrint('Error performing translation: $e');
-      return null;
     }
+    return null;
+  }
+
+  /// GET /api/v1/translation?question_id={id}
+  static Future<Map<String, dynamic>?> getQuestionTranslation(dynamic questionId) async {
+    try {
+      final response = await _getWithFallback('/translation', queryParameters: {'question_id': '$questionId'}, useCache: true);
+      if (response != null && response.statusCode == 200) {
+        final decoded = json.decode(response.body);
+        if (decoded is Map && decoded['data'] is Map<String, dynamic>) {
+          return decoded['data'];
+        } else if (decoded is Map<String, dynamic>) {
+          return decoded;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error getting question translation: $e');
+    }
+    return null;
   }
 }
 
