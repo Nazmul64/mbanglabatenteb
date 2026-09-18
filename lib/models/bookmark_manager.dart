@@ -376,9 +376,20 @@ class BookmarkManager {
   /// Record all attempted questions from an exam / test simulation
   static Future<void> recordExamResults(List<ExamResultItem> results, {int? timeSpentSeconds}) async {
     final List<Map<String, dynamic>> loggedAnswers = [];
+    int correctCount = 0;
+    int wrongCount = 0;
+    int nonRisposteCount = 0;
 
     for (var item in results) {
-      if (!item.isAttempted) continue;
+      if (!item.isAttempted) {
+        nonRisposteCount++;
+        continue;
+      }
+      if (item.isCorrect) {
+        correctCount++;
+      } else {
+        wrongCount++;
+      }
       final mcq = McqQuestion(
         id: item.id,
         chapter: item.chapter,
@@ -399,17 +410,22 @@ class BookmarkManager {
 
       loggedAnswers.add({
         'question_id': item.id,
-        'answer': item.userSelectedVero,
+        'user_answer': item.userSelectedVero,
         'is_correct': item.isCorrect,
       });
     }
 
     // Submit complete exam report to /scheda-esame/submit
-    if (loggedAnswers.isNotEmpty) {
+    if (results.isNotEmpty) {
       try {
         final authParams = await ApiService.getUserAuthParams();
-        ApiService.submitSchedaEsame({
+        await ApiService.submitSchedaEsame({
           ...authParams,
+          'total_questions': results.length,
+          'correct_count': correctCount,
+          'wrong_count': wrongCount,
+          'non_risposte_count': nonRisposteCount,
+          'duration_seconds': timeSpentSeconds ?? 600,
           'time_spent_seconds': timeSpentSeconds ?? 600,
           'answers': loggedAnswers,
         });

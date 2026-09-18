@@ -1196,7 +1196,7 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
       return Scaffold(
         backgroundColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
         appBar: AppBar(
-          title: const Text('Test', style: TextStyle(fontWeight: FontWeight.bold)),
+          title: const Text('mbanglabatenteb', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           centerTitle: true,
           backgroundColor: isDark ? const Color(0xFF121829) : Colors.white,
           foregroundColor: isDark ? Colors.white : Colors.black87,
@@ -1226,7 +1226,7 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
       return Scaffold(
         backgroundColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
         appBar: AppBar(
-          title: const Text('Test', style: TextStyle(fontWeight: FontWeight.bold)),
+          title: const Text('mbanglabatenteb', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           centerTitle: true,
           backgroundColor: isDark ? const Color(0xFF121829) : Colors.white,
           foregroundColor: isDark ? Colors.white : Colors.black87,
@@ -1292,7 +1292,7 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Test', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        title: const Text('mbanglabatenteb', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         centerTitle: true,
         backgroundColor: isDark ? const Color(0xFF121829) : Colors.white,
         foregroundColor: isDark ? Colors.white : Colors.black87,

@@ -237,7 +237,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
       backgroundColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
       appBar: AppBar(
         title: const Text(
-          'Tmm Patente',
+          'mbanglabatenteb',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 19, color: Colors.black87),
         ),
         centerTitle: false,

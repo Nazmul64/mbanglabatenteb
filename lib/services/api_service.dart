@@ -825,6 +825,37 @@ class ApiService {
     }
   }
 
+  /// POST /api/v1/user-mcq-results/log (Two-way sync for question practice results)
+  static Future<bool> logUserMcqResult(
+    dynamic questionId,
+    bool isCorrect,
+    String? userAnswer, {
+    String? type = 'argomenti',
+    String? sessionId,
+    String? phone,
+  }) async {
+    try {
+      final authParams = await _getUserAuthParams();
+      final body = <String, dynamic>{
+        'question_id': questionId,
+        'is_correct': isCorrect ? 1 : 0,
+        'user_answer': userAnswer ?? (isCorrect ? 'V' : 'F'),
+        'type': type ?? 'argomenti',
+        ...authParams,
+        if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
+        if (phone != null && phone.isNotEmpty) 'phone': phone,
+      };
+      final response = await _postWithFallback('/user-mcq-results/log', body) ??
+          await _postWithFallback('/mcq-results/log', body) ??
+          await _postWithFallback('/user-mcq-results', body) ??
+          await _postWithFallback('/mcq-results', body);
+      return response != null && (response.statusCode == 200 || response.statusCode == 201);
+    } catch (e) {
+      debugPrint('Error logging user mcq result: $e');
+      return false;
+    }
+  }
+
   // ─────────────────────────────────────────────────────
   // 📌 11. Support & Live Chat API
   // ─────────────────────────────────────────────────────
