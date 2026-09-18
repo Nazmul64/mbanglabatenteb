@@ -284,9 +284,24 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
 
     final details = await ApiService.fetchPageDetails(pId);
     if (details != null && mounted) {
-      final pos = (details['image_position'] ?? details['position'] ?? details['img_position'] ?? details['image_location'] ?? 'left')?.toString();
+      String? pageImg;
+      if (details['page'] is Map) {
+        final pMap = details['page'] as Map;
+        pageImg = (pMap['image'] ?? pMap['image_path'] ?? pMap['cover_image'] ?? pMap['image_url'] ?? pMap['img'])?.toString();
+      }
+      if (pageImg == null || pageImg.trim().isEmpty || pageImg.trim().toLowerCase() == 'null') {
+        pageImg = (details['image'] ?? details['image_path'] ?? details['cover_image'] ?? details['image_url'] ?? details['img'] ?? details['photo'] ?? details['page_image'])?.toString();
+      }
+      if (pageImg == null || pageImg.trim().isEmpty || pageImg.trim().toLowerCase() == 'null') {
+        pageImg = (activePageMap['image'] ?? activePageMap['image_path'] ?? activePageMap['cover_image'] ?? activePageMap['image_url'] ?? activePageMap['img'] ?? activePageMap['photo'] ?? activePageMap['thumbnail'])?.toString();
+      }
+      if (pageImg == null || pageImg.trim().isEmpty || pageImg.trim().toLowerCase() == 'null') {
+        pageImg = widget.initialPageImage;
+      }
+      final pos = (details['image_position'] ?? details['position'] ?? details['img_position'] ?? details['image_location'] ?? activePageMap['image_position'] ?? widget.initialPageImagePosition ?? 'left')?.toString();
+
       setState(() {
-        _pageImage = details['image']?.toString();
+        _pageImage = pageImg != null && pageImg.isNotEmpty ? ApiService.formatImageUrl(pageImg) : null;
         _pageImagePosition = pos;
       });
       List<dynamic> rawQuestions = [];

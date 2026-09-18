@@ -58,7 +58,14 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
             final id = ch['id'] is int ? ch['id'] as int : int.tryParse('${ch['id']}') ?? 1;
             final titleStr = (ch['name'] ?? ch['title'] ?? 'Capitolo $id').toString();
             final total = ch['questions_count'] ?? ch['question_count'] ?? ch['totale'] ?? 0;
-            final imgPath = (ch['cover_image'] ?? ch['image'] ?? '').toString();
+            String imgPath = '';
+            for (final k in ['cover_image', 'image', 'image_path', 'thumbnail', 'img', 'photo', 'icon', 'picture']) {
+              final val = ch[k]?.toString().trim();
+              if (val != null && val.isNotEmpty && val.toLowerCase() != 'null' && val.toLowerCase() != 'undefined') {
+                imgPath = val;
+                break;
+              }
+            }
             final fullImgUrl = ApiService.formatImageUrl(imgPath);
             final chapNum = ch['chapter_number'] ?? id;
 
@@ -85,14 +92,25 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
   }
 
   Widget _buildNetworkImageDiagram(String url) {
+    final formatted = ApiService.formatImageUrl(url);
     return Container(
       height: 140,
       width: double.infinity,
       alignment: Alignment.center,
       color: Colors.transparent,
       child: Image.network(
-        url,
+        formatted,
         fit: BoxFit.contain,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return const Center(
+            child: SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          );
+        },
         errorBuilder: (ctx, err, stack) => const Center(child: Icon(Icons.school_rounded, size: 48, color: Colors.purple)),
       ),
     );

@@ -66,7 +66,7 @@ class McqQuestion {
         ? json['sbagliato_count']
         : int.tryParse(json['sbagliato_count']?.toString() ?? json['sbagliatoCount']?.toString() ?? '0') ?? 0;
 
-    String? rawImage = (json['image'] ?? json['image_path'] ?? json['cover_image'] ?? json['image_url'] ?? json['img'] ?? json['photo'] ?? json['picture'] ?? json['page_image'])?.toString();
+    String? rawImage = (json['image'] ?? json['image_path'] ?? json['cover_image'] ?? json['image_url'] ?? json['img'] ?? json['photo'] ?? json['picture'] ?? json['page_image'] ?? json['thumbnail'])?.toString();
 
     if (rawImage == null || rawImage.trim().isEmpty || rawImage.trim().toLowerCase() == 'null' || rawImage.trim().toLowerCase() == 'undefined') {
       if (parsedVocab != null && parsedVocab.isNotEmpty) {

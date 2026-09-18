@@ -134,7 +134,14 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
           final titleStr = (p['title'] ?? p['name'] ?? 'Pagina ${i + 1}').toString();
           final total = p['questions_count'] ?? p['question_count'] ?? p['totale'] ?? 0;
           final pageNum = p['sort_order'] ?? p['page_number'] ?? (i + 1);
-          final imgPath = (p['image'] ?? p['image_path'] ?? p['cover_image'] ?? p['image_url'] ?? p['img'] ?? p['photo'] ?? p['page_image'] ?? p['thumbnail'] ?? '').toString();
+          String imgPath = '';
+          for (final k in ['image', 'image_path', 'cover_image', 'image_url', 'img', 'photo', 'page_image', 'thumbnail']) {
+            final val = p[k]?.toString().trim();
+            if (val != null && val.isNotEmpty && val.toLowerCase() != 'null' && val.toLowerCase() != 'undefined') {
+              imgPath = val;
+              break;
+            }
+          }
           final fullImgUrl = ApiService.formatImageUrl(imgPath);
           loadedList.add(SubTopic(
             pageId: pId,
@@ -162,12 +169,51 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
         try {
           final details = await ApiService.fetchPageDetails(sub.pageId);
           if (details != null && mounted) {
-            String? img = (details['image'] ?? details['image_path'] ?? details['cover_image'] ?? details['image_url'] ?? details['img'] ?? details['photo'] ?? details['page_image'])?.toString();
-            // Fallback to first question's image if page image is not directly defined
-            if ((img == null || img.trim().isEmpty || img.trim().toLowerCase() == 'null') && details['questions'] is List && (details['questions'] as List).isNotEmpty) {
-              final firstQ = details['questions'][0];
-              if (firstQ is Map) {
-                img = (firstQ['image'] ?? firstQ['image_path'] ?? firstQ['img'])?.toString();
+            String? img;
+            if (details['page'] is Map) {
+              final pMap = details['page'] as Map;
+              for (final k in ['image', 'image_path', 'cover_image', 'image_url', 'img', 'photo', 'page_image', 'thumbnail']) {
+                final val = pMap[k]?.toString().trim();
+                if (val != null && val.isNotEmpty && val.toLowerCase() != 'null' && val.toLowerCase() != 'undefined') {
+                  img = val;
+                  break;
+                }
+              }
+            }
+            if (img == null || img.trim().isEmpty || img.trim().toLowerCase() == 'null') {
+              for (final k in ['image', 'image_path', 'cover_image', 'image_url', 'img', 'photo', 'page_image', 'thumbnail']) {
+                final val = details[k]?.toString().trim();
+                if (val != null && val.isNotEmpty && val.toLowerCase() != 'null' && val.toLowerCase() != 'undefined') {
+                  img = val;
+                  break;
+                }
+              }
+            }
+            // Fallback to first question's image or vocabulary image if page image is not directly defined
+            if (img == null || img.trim().isEmpty || img.trim().toLowerCase() == 'null') {
+              final qList = (details['questions'] is List ? details['questions'] as List : (details['mcqs'] is List ? details['mcqs'] as List : null));
+              if (qList != null && qList.isNotEmpty) {
+                for (final q in qList) {
+                  if (q is Map) {
+                    final qImg = (q['image'] ?? q['image_path'] ?? q['img'] ?? q['photo'] ?? q['image_url'])?.toString().trim();
+                    if (qImg != null && qImg.isNotEmpty && qImg.toLowerCase() != 'null' && qImg.toLowerCase() != 'undefined') {
+                      img = qImg;
+                      break;
+                    }
+                    if (q['vocabulary'] is List && (q['vocabulary'] as List).isNotEmpty) {
+                      for (final v in q['vocabulary']) {
+                        if (v is Map) {
+                          final vImg = (v['image'] ?? v['image_path'] ?? v['img'] ?? v['photo'] ?? v['image_url'])?.toString().trim();
+                          if (vImg != null && vImg.isNotEmpty && vImg.toLowerCase() != 'null' && vImg.toLowerCase() != 'undefined') {
+                            img = vImg;
+                            break;
+                          }
+                        }
+                      }
+                      if (img != null) break;
+                    }
+                  }
+                }
               }
             }
             if (img != null && img.trim().isNotEmpty && img.trim().toLowerCase() != 'null') {

@@ -175,15 +175,27 @@ class _CartelliScreenState extends State<CartelliScreen> {
         orElse: () => null,
       );
       if (pageData != null) {
-        pageImg = (pageData['image'] ?? pageData['image_path'] ?? pageData['cover_image'] ?? pageData['image_url'] ?? pageData['img'])?.toString();
+        for (final k in ['image', 'image_path', 'cover_image', 'image_url', 'img', 'photo', 'page_image', 'thumbnail']) {
+          final val = pageData[k]?.toString().trim();
+          if (val != null && val.isNotEmpty && val.toLowerCase() != 'null' && val.toLowerCase() != 'undefined') {
+            pageImg = val;
+            break;
+          }
+        }
         pageImgPos = (pageData['image_position'] ?? pageData['position'] ?? pageData['img_position'])?.toString();
       }
       rawMcqs = await ApiService.fetchCartelliPageMcqs(pageId);
     } else {
       for (var page in _apiPages) {
         final pId = page['id'] is int ? page['id'] as int : int.tryParse('${page['id']}') ?? 1;
-        if (pageImg == null) {
-          pageImg = (page['image'] ?? page['image_path'] ?? page['cover_image'])?.toString();
+        if (pageImg == null || pageImg.isEmpty) {
+          for (final k in ['image', 'image_path', 'cover_image', 'image_url', 'img', 'photo', 'page_image', 'thumbnail']) {
+            final val = page[k]?.toString().trim();
+            if (val != null && val.isNotEmpty && val.toLowerCase() != 'null' && val.toLowerCase() != 'undefined') {
+              pageImg = val;
+              break;
+            }
+          }
           pageImgPos = (page['image_position'] ?? page['position'] ?? page['img_position'])?.toString();
         }
         final list = await ApiService.fetchCartelliPageMcqs(pId);

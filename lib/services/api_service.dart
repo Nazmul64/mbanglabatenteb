@@ -88,21 +88,42 @@ class ApiService {
   /// Helper to convert relative image path (/uploads/...) to full absolute HTTP URL
   static String formatImageUrl(String? path) {
     if (path == null || path.trim().isEmpty) return '';
-    if (path.trim().toLowerCase() == 'null' || path.trim().toLowerCase() == 'undefined') return '';
-    if (path.startsWith('file://')) return '';
-
-    final serverOrigin = baseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
     var cleanPath = path.trim();
+    if (cleanPath.toLowerCase() == 'null' ||
+        cleanPath.toLowerCase() == 'undefined' ||
+        cleanPath.toLowerCase() == 'none') {
+      return '';
+    }
+    if (cleanPath.startsWith('file://')) return '';
 
-    // Dynamically replace any localhost or local dev IP in stored URLs with the live production origin
+    // Normalize backslashes (e.g. from Windows server DB seeding or paths)
+    cleanPath = cleanPath.replaceAll(r'\', '/');
+
+    // Replace any localhost or local dev IP in stored URLs with the live production origin
     cleanPath = cleanPath.replaceAll(
       RegExp(r'https?://(?:127\.0\.0\.1|localhost|192\.168\.\d+\.\d+|10\.0\.2\.2)(?::\d+)?'),
-      serverOrigin,
+      liveOrigin,
     );
 
-    if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) return cleanPath;
+    // Fix /api/v1/uploads or /api/uploads if mistakenly stored or concatenated
+    cleanPath = cleanPath.replaceAll('/api/v1/uploads', '/uploads').replaceAll('/api/uploads', '/uploads');
+
+    // Protocol-relative URLs (e.g. //mbanglapatenteb.com/uploads/...)
+    if (cleanPath.startsWith('//')) {
+      return 'https:$cleanPath';
+    }
+
+    // Always enforce HTTPS for the production domain
+    if (cleanPath.startsWith('http://mbanglapatenteb.com')) {
+      cleanPath = cleanPath.replaceFirst('http://', 'https://');
+    }
+
+    if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+      return cleanPath;
+    }
+
     final normalized = cleanPath.startsWith('/') ? cleanPath : '/$cleanPath';
-    return '$serverOrigin$normalized';
+    return '$liveOrigin$normalized';
   }
 
   static final Map<String, http.Response> _apiResponseCache = {};
