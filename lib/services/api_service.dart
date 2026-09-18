@@ -836,11 +836,20 @@ class ApiService {
   }) async {
     try {
       final authParams = await _getUserAuthParams();
+      final qId = questionId is int ? questionId : int.tryParse('$questionId') ?? 0;
+      final answer = userAnswer ?? (isCorrect ? 'V' : 'F');
       final body = <String, dynamic>{
-        'question_id': questionId,
+        'question_id': qId,
         'is_correct': isCorrect ? 1 : 0,
-        'user_answer': userAnswer ?? (isCorrect ? 'V' : 'F'),
+        'user_answer': answer,
         'type': type ?? 'argomenti',
+        'results': [
+          {
+            'question_id': qId,
+            'user_answer': answer,
+            'is_correct': isCorrect,
+          }
+        ],
         ...authParams,
         if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
         if (phone != null && phone.isNotEmpty) 'phone': phone,
@@ -1127,26 +1136,6 @@ class ApiService {
     } catch (e) {
       debugPrint('Error fetching questions by IDs: $e');
       return [];
-    }
-  }
-
-  static Future<bool> logUserMcqResult(int questionId, bool isCorrect, String userAnswer) async {
-    try {
-      final authParams = await _getUserAuthParams();
-      final response = await _postWithFallback('/user-mcq-results/log', {
-        ...authParams,
-        'results': [
-          {
-            'question_id': questionId,
-            'user_answer': userAnswer,
-            'is_correct': isCorrect,
-          }
-        ]
-      });
-      return response != null && (response.statusCode == 200 || response.statusCode == 201);
-    } catch (e) {
-      debugPrint('Error logging user MCQ result: $e');
-      return false;
     }
   }
 
