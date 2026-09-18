@@ -41,6 +41,18 @@ class ApiService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('app_cached_base_url', liveProductionUrl);
 
+      // Immediately restore stored user identity into memory
+      final phone = prefs.getString('app_client_phone') ??
+          prefs.getString('user_phone') ??
+          prefs.getString('phone');
+      final sessionId = prefs.getString('app_client_session_id') ??
+          prefs.getString('session_id');
+      final token = prefs.getString('app_client_token');
+
+      if (phone != null && phone.trim().isNotEmpty) _activeClientPhone = phone.trim();
+      if (sessionId != null && sessionId.trim().isNotEmpty) _activeSessionId = sessionId.trim();
+      if (token != null && token.trim().isNotEmpty) _authToken = token.trim();
+
       // Probe live server settings
       final uri = Uri.parse('$liveProductionUrl/settings');
       final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(seconds: 4));
@@ -78,6 +90,7 @@ class ApiService {
     }
     if (_activeSessionId != null && _activeSessionId!.isNotEmpty) {
       headers['X-Session-ID'] = _activeSessionId!;
+      headers['X-Client-Session-ID'] = _activeSessionId!;
     }
     if (_activeClientPhone != null && _activeClientPhone!.isNotEmpty) {
       headers['X-Client-Phone'] = _activeClientPhone!;
@@ -250,14 +263,18 @@ class ApiService {
         if (decoded is List) return decoded;
         if (decoded is Map<String, dynamic>) {
           if (decoded['data'] is List) return decoded['data'] as List<dynamic>;
+          if (decoded['messages'] is List) return decoded['messages'] as List<dynamic>;
           if (decoded['results'] is List) return decoded['results'] as List<dynamic>;
           if (decoded['words'] is List) return decoded['words'] as List<dynamic>;
           if (decoded['items'] is List) return decoded['items'] as List<dynamic>;
+          if (decoded['mcqs'] is List) return decoded['mcqs'] as List<dynamic>;
           if (decoded['data'] is Map<String, dynamic>) {
             final subMap = decoded['data'] as Map<String, dynamic>;
+            if (subMap['messages'] is List) return subMap['messages'] as List<dynamic>;
             if (subMap['results'] is List) return subMap['results'] as List<dynamic>;
             if (subMap['data'] is List) return subMap['data'] as List<dynamic>;
             if (subMap['words'] is List) return subMap['words'] as List<dynamic>;
+            if (subMap['items'] is List) return subMap['items'] as List<dynamic>;
           }
         }
       } catch (e) {
@@ -682,19 +699,28 @@ class ApiService {
       }
       final userId = prefs.getInt('user_id');
 
+      if (phone != null && phone.trim().isNotEmpty) {
+        _activeClientPhone = phone.trim();
+        params['phone'] = phone.trim();
+        params['user_phone'] = phone.trim();
+      } else if (_activeClientPhone != null && _activeClientPhone!.isNotEmpty) {
+        params['phone'] = _activeClientPhone!;
+        params['user_phone'] = _activeClientPhone!;
+      }
+
+      if (sessionId.trim().isNotEmpty) {
+        _activeSessionId = sessionId.trim();
+        params['session_id'] = sessionId.trim();
+      } else if (_activeSessionId != null && _activeSessionId!.isNotEmpty) {
+        params['session_id'] = _activeSessionId!;
+      }
+
       if (firstName != null && firstName.trim().isNotEmpty) {
         params['first_name'] = firstName.trim();
         params['name'] = firstName.trim();
       }
       if (lastName != null && lastName.trim().isNotEmpty) {
         params['last_name'] = lastName.trim();
-      }
-      if (phone != null && phone.trim().isNotEmpty) {
-        params['phone'] = phone.trim();
-        params['user_phone'] = phone.trim();
-      }
-      if (sessionId.trim().isNotEmpty) {
-        params['session_id'] = sessionId.trim();
       }
       if (userId != null && userId > 0) {
         params['user_id'] = '$userId';
@@ -704,16 +730,19 @@ class ApiService {
   }
 
   // ─────────────────────────────────────────────────────
-  // 📌 9. Saved MCQs & Notes API
+  // 📌 9. Saved MCQs & Notes API (100% Cross-Platform Sync)
   // ─────────────────────────────────────────────────────
   /// GET /api/v1/saved-mcqs
   static Future<List<dynamic>> fetchSavedMcqs({String? sessionId, String? phone, int? userId}) async {
     try {
       final params = await _getUserAuthParams();
       if (sessionId != null && sessionId.isNotEmpty) params['session_id'] = sessionId;
-      if (phone != null && phone.isNotEmpty) params['phone'] = phone;
+      if (phone != null && phone.isNotEmpty) {
+        params['phone'] = phone;
+        params['user_phone'] = phone;
+      }
       if (userId != null) params['user_id'] = '$userId';
-      final response = await _getWithFallback('/saved-mcqs', queryParameters: params.isNotEmpty ? params : null);
+      final response = await _getWithFallback('/saved-mcqs', queryParameters: params.isNotEmpty ? params : null, useCache: false);
       return _extractList(response);
     } catch (e) {
       debugPrint('Error fetching saved mcqs: $e');
@@ -737,9 +766,13 @@ class ApiService {
         'type': type ?? 'argomenti',
         ...authParams,
         if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
-        if (phone != null && phone.isNotEmpty) 'phone': phone,
+        if (phone != null && phone.isNotEmpty) ...{
+          'phone': phone,
+          'user_phone': phone,
+        },
       };
-      final response = await _postWithFallback('/saved-mcqs/toggle', body);
+      final response = await _postWithFallback('/saved-mcqs/toggle', body) ??
+          await _postWithFallback('/saved-mcqs', body);
       invalidateUserDataCache();
       return _extractMap(response);
     } catch (e) {
@@ -753,10 +786,13 @@ class ApiService {
     try {
       final params = await _getUserAuthParams();
       if (sessionId != null && sessionId.isNotEmpty) params['session_id'] = sessionId;
-      if (phone != null && phone.isNotEmpty) params['phone'] = phone;
+      if (phone != null && phone.isNotEmpty) {
+        params['phone'] = phone;
+        params['user_phone'] = phone;
+      }
       if (userId != null) params['user_id'] = '$userId';
-      final response = await _getWithFallback('/noted-mcqs', queryParameters: params.isNotEmpty ? params : null) ??
-          await _getWithFallback('/notes', queryParameters: params.isNotEmpty ? params : null);
+      final response = await _getWithFallback('/noted-mcqs', queryParameters: params.isNotEmpty ? params : null, useCache: false) ??
+          await _getWithFallback('/notes', queryParameters: params.isNotEmpty ? params : null, useCache: false);
       return _extractList(response);
     } catch (e) {
       debugPrint('Error fetching noted mcqs: $e');
@@ -788,9 +824,14 @@ class ApiService {
         'type': type ?? 'argomenti',
         ...authParams,
         if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
-        if (phone != null && phone.isNotEmpty) 'phone': phone,
+        if (phone != null && phone.isNotEmpty) ...{
+          'phone': phone,
+          'user_phone': phone,
+        },
       };
       final response = await _postWithFallback('/noted-mcqs/save', payload) ??
+          await _postWithFallback('/noted-mcqs', payload) ??
+          await _postWithFallback('/notes/save', payload) ??
           await _postWithFallback('/notes', payload);
       invalidateUserDataCache();
       return response != null && (response.statusCode == 200 || response.statusCode == 201);
@@ -800,12 +841,24 @@ class ApiService {
     }
   }
 
-  /// DELETE /api/v1/noted-mcqs/{id}
-  static Future<bool> deleteNote(dynamic noteId) async {
+  /// DELETE /api/v1/noted-mcqs/{id} or POST /api/v1/noted-mcqs/delete
+  static Future<bool> deleteNote(dynamic noteId, {String? sessionId, String? phone}) async {
     try {
+      final authParams = await _getUserAuthParams();
+      final payload = {
+        'id': noteId,
+        'question_id': noteId,
+        ...authParams,
+        if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
+        if (phone != null && phone.isNotEmpty) ...{
+          'phone': phone,
+          'user_phone': phone,
+        },
+      };
       final response = await _deleteWithFallback('/noted-mcqs/$noteId') ??
           await _deleteWithFallback('/notes/$noteId') ??
-          await _postWithFallback('/noted-mcqs/delete', {'id': noteId, 'question_id': noteId});
+          await _postWithFallback('/noted-mcqs/delete', payload) ??
+          await _postWithFallback('/notes/delete', payload);
       invalidateUserDataCache();
       return response != null && (response.statusCode == 200 || response.statusCode == 204);
     } catch (e) {
@@ -815,13 +868,18 @@ class ApiService {
   }
 
   // ─────────────────────────────────────────────────────
-  // 📌 10. Correct & Wrong MCQs API
+  // 📌 10. Correct & Wrong MCQs API (100% Cross-Platform Sync)
   // ─────────────────────────────────────────────────────
   /// GET /api/v1/correct-mcqs
-  static Future<List<dynamic>> fetchCorrectMcqs() async {
+  static Future<List<dynamic>> fetchCorrectMcqs({String? sessionId, String? phone}) async {
     try {
       final params = await _getUserAuthParams();
-      final response = await _getWithFallback('/correct-mcqs', queryParameters: params.isNotEmpty ? params : null);
+      if (sessionId != null && sessionId.isNotEmpty) params['session_id'] = sessionId;
+      if (phone != null && phone.isNotEmpty) {
+        params['phone'] = phone;
+        params['user_phone'] = phone;
+      }
+      final response = await _getWithFallback('/correct-mcqs', queryParameters: params.isNotEmpty ? params : null, useCache: false);
       return _extractList(response);
     } catch (e) {
       debugPrint('Error fetching correct mcqs: $e');
@@ -830,10 +888,15 @@ class ApiService {
   }
 
   /// GET /api/v1/wrong-mcqs
-  static Future<List<dynamic>> fetchWrongMcqs() async {
+  static Future<List<dynamic>> fetchWrongMcqs({String? sessionId, String? phone}) async {
     try {
       final params = await _getUserAuthParams();
-      final response = await _getWithFallback('/wrong-mcqs', queryParameters: params.isNotEmpty ? params : null);
+      if (sessionId != null && sessionId.isNotEmpty) params['session_id'] = sessionId;
+      if (phone != null && phone.isNotEmpty) {
+        params['phone'] = phone;
+        params['user_phone'] = phone;
+      }
+      final response = await _getWithFallback('/wrong-mcqs', queryParameters: params.isNotEmpty ? params : null, useCache: false);
       return _extractList(response);
     } catch (e) {
       debugPrint('Error fetching wrong mcqs: $e');
@@ -863,12 +926,15 @@ class ApiService {
           {
             'question_id': qId,
             'user_answer': answer,
-            'is_correct': isCorrect,
+            'is_correct': isCorrect ? 1 : 0,
           }
         ],
         ...authParams,
         if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
-        if (phone != null && phone.isNotEmpty) 'phone': phone,
+        if (phone != null && phone.isNotEmpty) ...{
+          'phone': phone,
+          'user_phone': phone,
+        },
       };
       final response = await _postWithFallback('/user-mcq-results/log', body) ??
           await _postWithFallback('/mcq-results/log', body) ??
@@ -888,11 +954,18 @@ class ApiService {
   /// GET /api/v1/support/messages
   static Future<List<dynamic>> fetchSupportMessages({String? sessionId, String? phone}) async {
     try {
+      final authParams = await _getUserAuthParams();
       final queryParams = <String, String>{};
-      if (sessionId != null && sessionId.isNotEmpty) queryParams['session_id'] = sessionId;
-      if (phone != null && phone.isNotEmpty) queryParams['phone'] = phone;
+      final effectivePhone = (phone != null && phone.isNotEmpty) ? phone : authParams['phone'];
+      final effectiveSessionId = (sessionId != null && sessionId.isNotEmpty) ? sessionId : authParams['session_id'];
 
-      final response = await _getWithFallback('/support/messages', queryParameters: queryParams.isNotEmpty ? queryParams : null);
+      if (effectiveSessionId != null && effectiveSessionId.isNotEmpty) queryParams['session_id'] = effectiveSessionId;
+      if (effectivePhone != null && effectivePhone.isNotEmpty) {
+        queryParams['phone'] = effectivePhone;
+        queryParams['user_phone'] = effectivePhone;
+      }
+
+      final response = await _getWithFallback('/support/messages', queryParameters: queryParams.isNotEmpty ? queryParams : null, useCache: false);
       return _extractList(response);
     } catch (e) {
       debugPrint('Error fetching support messages: $e');
@@ -1111,11 +1184,18 @@ class ApiService {
   /// GET /api/v1/client/status
   static Future<Map<String, dynamic>?> fetchClientStatus({String? sessionId, String? phone}) async {
     try {
+      final authParams = await _getUserAuthParams();
       final queryParams = <String, String>{};
-      if (sessionId != null && sessionId.isNotEmpty) queryParams['session_id'] = sessionId;
-      if (phone != null && phone.isNotEmpty) queryParams['phone'] = phone;
+      final effectivePhone = (phone != null && phone.isNotEmpty) ? phone : authParams['phone'];
+      final effectiveSessionId = (sessionId != null && sessionId.isNotEmpty) ? sessionId : authParams['session_id'];
 
-      final response = await _getWithFallback('/client/status', queryParameters: queryParams.isNotEmpty ? queryParams : null);
+      if (effectiveSessionId != null && effectiveSessionId.isNotEmpty) queryParams['session_id'] = effectiveSessionId;
+      if (effectivePhone != null && effectivePhone.isNotEmpty) {
+        queryParams['phone'] = effectivePhone;
+        queryParams['user_phone'] = effectivePhone;
+      }
+
+      final response = await _getWithFallback('/client/status', queryParameters: queryParams.isNotEmpty ? queryParams : null, useCache: false);
       return _extractMap(response);
     } catch (e) {
       debugPrint('Error fetching client status: $e');
@@ -1305,21 +1385,28 @@ class ApiService {
     return null;
   }
 
-  /// Fetch live chat messages for client by session_id or phone
+  /// Fetch live chat messages for client by session_id or phone (Real-time sync, never cached)
   static Future<List<dynamic>> fetchChatMessages([String? sessionId, String? phone]) async {
     try {
+      final authParams = await _getUserAuthParams();
       final queryParams = <String, String>{};
-      if (sessionId != null && sessionId.isNotEmpty) queryParams['session_id'] = sessionId;
-      if (phone != null && phone.isNotEmpty) queryParams['phone'] = phone;
+      final effectivePhone = (phone != null && phone.isNotEmpty) ? phone : authParams['phone'];
+      final effectiveSessionId = (sessionId != null && sessionId.isNotEmpty) ? sessionId : authParams['session_id'];
+
+      if (effectiveSessionId != null && effectiveSessionId.isNotEmpty) queryParams['session_id'] = effectiveSessionId;
+      if (effectivePhone != null && effectivePhone.isNotEmpty) {
+        queryParams['phone'] = effectivePhone;
+        queryParams['user_phone'] = effectivePhone;
+      }
 
       // 1. Primary: /support/messages
-      final response = await _getWithFallback('/support/messages', queryParameters: queryParams.isNotEmpty ? queryParams : null);
+      final response = await _getWithFallback('/support/messages', queryParameters: queryParams.isNotEmpty ? queryParams : null, useCache: false);
       if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
         return _extractList(response);
       }
 
       // 2. Fallback: /chat/messages
-      final resp2 = await _getWithFallback('/chat/messages', queryParameters: queryParams.isNotEmpty ? queryParams : null);
+      final resp2 = await _getWithFallback('/chat/messages', queryParameters: queryParams.isNotEmpty ? queryParams : null, useCache: false);
       if (resp2 != null && (resp2.statusCode == 200 || resp2.statusCode == 201)) {
         return _extractList(resp2);
       }

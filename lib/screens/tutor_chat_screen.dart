@@ -177,17 +177,33 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
       final timeStr = item['created_at']?.toString() ?? 'Just now';
 
       final bool isCard = item['is_license_card'] == true ||
+          item['type'] == 'license' ||
+          item['type'] == 'license_card' ||
+          item['card_type'] == 'license' ||
           text.contains('[LICENSE_CARD:') ||
-          (item['license_key'] != null && item['license_key'].toString().isNotEmpty);
+          text.contains('Chiave Licenza') ||
+          (item['license_key'] != null && item['license_key'].toString().trim().isNotEmpty);
 
-      String? key = item['license_key']?.toString();
-      int days = 365;
+      String? key = item['license_key']?.toString().trim();
+      int days = item['days'] != null ? (int.tryParse(item['days'].toString()) ?? 365) : 365;
 
       if (text.contains('[LICENSE_CARD:')) {
         final matchKey = RegExp(r'key=([0-9a-zA-Z_-]+)').firstMatch(text);
         final matchDays = RegExp(r'days=(\d+)').firstMatch(text);
         if (matchKey != null) key = matchKey.group(1);
         if (matchDays != null) days = int.tryParse(matchDays.group(1) ?? '365') ?? 365;
+      } else if (text.contains('Chiave Licenza')) {
+        final matchKey = RegExp(r'Chiave Licenza\s*([0-9a-zA-Z_-]+)', caseSensitive: false).firstMatch(text);
+        if (matchKey != null && matchKey.group(1) != null) {
+          key = matchKey.group(1);
+        }
+      }
+
+      if (key == null || key.isEmpty) {
+        final matchNumKey = RegExp(r'\b(\d{5,8})\b').firstMatch(text);
+        if (matchNumKey != null && isCard) {
+          key = matchNumKey.group(1);
+        }
       }
 
       String formattedTime = timeStr;
