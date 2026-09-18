@@ -128,8 +128,20 @@ class ApiService {
 
   static final Map<String, http.Response> _apiResponseCache = {};
 
-  /// Helper to perform HTTP GET with dynamic candidate URL resolution & fallback
-  static Future<http.Response?> _getWithFallback(String endpoint, {Map<String, String>? queryParameters, bool useCache = false}) async {
+  /// Invalidate cached user records when actions happen
+  static void invalidateUserDataCache() {
+    _apiResponseCache.removeWhere((key, _) =>
+        key.startsWith('/saved-mcqs') ||
+        key.startsWith('/noted-mcqs') ||
+        key.startsWith('/notes') ||
+        key.startsWith('/correct-mcqs') ||
+        key.startsWith('/wrong-mcqs') ||
+        key.startsWith('/user-mcq-results') ||
+        key.startsWith('/mcq-results'));
+  }
+
+  /// Helper to perform HTTP GET with dynamic candidate URL resolution & fallback (ultra-fast sub-second caching)
+  static Future<http.Response?> _getWithFallback(String endpoint, {Map<String, String>? queryParameters, bool useCache = true}) async {
     final cacheKey = '$endpoint?${queryParameters?.entries.map((e) => '${e.key}=${e.value}').join('&') ?? ''}';
     if (useCache && _apiResponseCache.containsKey(cacheKey)) {
       return _apiResponseCache[cacheKey];
@@ -623,6 +635,7 @@ class ApiService {
   static Future<Map<String, dynamic>?> submitSchedaEsame(Map<String, dynamic> payload) async {
     try {
       final response = await _postWithFallback('/scheda-esame/submit', payload);
+      invalidateUserDataCache();
       return _extractMap(response);
     } catch (e) {
       debugPrint('Error submitting scheda esame: $e');
@@ -727,6 +740,7 @@ class ApiService {
         if (phone != null && phone.isNotEmpty) 'phone': phone,
       };
       final response = await _postWithFallback('/saved-mcqs/toggle', body);
+      invalidateUserDataCache();
       return _extractMap(response);
     } catch (e) {
       debugPrint('Error toggling saved mcq: $e');
@@ -778,6 +792,7 @@ class ApiService {
       };
       final response = await _postWithFallback('/noted-mcqs/save', payload) ??
           await _postWithFallback('/notes', payload);
+      invalidateUserDataCache();
       return response != null && (response.statusCode == 200 || response.statusCode == 201);
     } catch (e) {
       debugPrint('Error saving note: $e');
@@ -791,6 +806,7 @@ class ApiService {
       final response = await _deleteWithFallback('/noted-mcqs/$noteId') ??
           await _deleteWithFallback('/notes/$noteId') ??
           await _postWithFallback('/noted-mcqs/delete', {'id': noteId, 'question_id': noteId});
+      invalidateUserDataCache();
       return response != null && (response.statusCode == 200 || response.statusCode == 204);
     } catch (e) {
       debugPrint('Error deleting note: $e');
@@ -858,6 +874,7 @@ class ApiService {
           await _postWithFallback('/mcq-results/log', body) ??
           await _postWithFallback('/user-mcq-results', body) ??
           await _postWithFallback('/mcq-results', body);
+      invalidateUserDataCache();
       return response != null && (response.statusCode == 200 || response.statusCode == 201);
     } catch (e) {
       debugPrint('Error logging user mcq result: $e');
