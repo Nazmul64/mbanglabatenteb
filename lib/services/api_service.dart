@@ -109,6 +109,18 @@ class ApiService {
     }
     if (cleanPath.startsWith('file://')) return '';
 
+    // Ignore/reject any seeder image files
+    final lower = cleanPath.toLowerCase();
+    if (lower.contains('seeder') ||
+        lower.contains('seeders') ||
+        lower.contains('/seed') ||
+        lower.contains('seed/') ||
+        lower.contains('seed_') ||
+        lower.contains('_seed') ||
+        lower.startsWith('seed')) {
+      return '';
+    }
+
     // Normalize backslashes (e.g. from Windows server DB seeding or paths)
     cleanPath = cleanPath.replaceAll(r'\', '/');
 
@@ -1726,28 +1738,79 @@ class ApiService {
   // ─────────────────────────────────────────────────────
   // 📌 16. Translation API
   // ─────────────────────────────────────────────────────
-  /// POST /api/v1/translate (or fallback GET /api/v1/translate)
+  /// POST /api/v1/translate (or fallback GET /api/v1/translate or direct Google Translate)
   static Future<Map<String, dynamic>?> translateText({
     required String text,
     String fromLang = 'it',
     String toLang = 'bn',
   }) async {
+    final queryText = text.trim();
+    if (queryText.isEmpty) return null;
+
+    // 1. Google Translate API (fast, reliable, handles Bangla <-> Italian accurately)
+    try {
+      final gUrl = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=$fromLang&tl=$toLang&dt=t&q=${Uri.encodeComponent(queryText)}';
+      final gResponse = await http.get(Uri.parse(gUrl)).timeout(const Duration(seconds: 8));
+      if (gResponse.statusCode == 200) {
+        final decoded = json.decode(utf8.decode(gResponse.bodyBytes));
+        if (decoded is List && decoded.isNotEmpty && decoded[0] is List) {
+          final List parts = decoded[0];
+          String result = '';
+          for (var part in parts) {
+            if (part is List && part.isNotEmpty && part[0] != null) {
+              result += part[0].toString();
+            }
+          }
+          if (result.trim().isNotEmpty) {
+            return {
+              'success': true,
+              'translated_text': result.trim(),
+              'original_text': queryText,
+              'from_lang': fromLang,
+              'to_lang': toLang,
+            };
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Google Translate API error: $e');
+    }
+
+    // 2. Fallback to backend API endpoint
     try {
       final payload = {
-        'text': text,
+        'text': queryText,
         'from_lang': fromLang,
         'to_lang': toLang,
       };
       final response = await _postWithFallback('/translate', payload);
       if (response != null && response.statusCode == 200) {
-        return json.decode(response.body);
+        final data = json.decode(response.body);
+        if (data is Map<String, dynamic>) {
+          if (data['translated_text'] != null) return data;
+          if (data['data'] != null && data['data'] is Map && data['data']['translated_text'] != null) {
+            return Map<String, dynamic>.from(data['data']);
+          }
+          if (data['translation'] != null) {
+            return {'translated_text': data['translation']};
+          }
+        }
       }
-      final resp2 = await _getWithFallback('/translate', queryParameters: {'text': text, 'from_lang': fromLang, 'to_lang': toLang});
+      final resp2 = await _getWithFallback('/translate', queryParameters: {'text': queryText, 'from_lang': fromLang, 'to_lang': toLang});
       if (resp2 != null && resp2.statusCode == 200) {
-        return json.decode(resp2.body);
+        final data = json.decode(resp2.body);
+        if (data is Map<String, dynamic>) {
+          if (data['translated_text'] != null) return data;
+          if (data['data'] != null && data['data'] is Map && data['data']['translated_text'] != null) {
+            return Map<String, dynamic>.from(data['data']);
+          }
+          if (data['translation'] != null) {
+            return {'translated_text': data['translation']};
+          }
+        }
       }
     } catch (e) {
-      debugPrint('Error performing translation: $e');
+      debugPrint('Backend translate API fallback error: $e');
     }
     return null;
   }

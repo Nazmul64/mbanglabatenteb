@@ -723,38 +723,59 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
               ),
               const SizedBox(height: 10),
 
-              // Main Question Row: Image on Left, Italian Text with Underline on Right
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (imgUrl.isNotEmpty) ...[
-                    GestureDetector(
-                      onTap: () => ImageZoomDialog.show(context, effectiveImg),
-                      child: Container(
-                        constraints: const BoxConstraints(
-                          minWidth: 70,
-                          maxWidth: 95,
-                          minHeight: 65,
-                          maxHeight: 90,
-                        ),
-                        alignment: Alignment.center,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.network(
-                            imgUrl,
-                            fit: BoxFit.contain,
-                            errorBuilder: (ctx, err, stack) => const SizedBox.shrink(),
+              // Main Question Row: Image (Top or Left), Italian Text with Underline
+              if (imgUrl.isNotEmpty && (quiz.imagePosition?.toLowerCase().contains('top') == true || quiz.imagePosition?.toLowerCase().contains('center') == true)) ...[
+                GestureDetector(
+                  onTap: () => ImageZoomDialog.show(context, effectiveImg),
+                  child: Container(
+                    height: 120,
+                    width: double.infinity,
+                    alignment: Alignment.center,
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        imgUrl,
+                        fit: BoxFit.contain,
+                        errorBuilder: (ctx, err, stack) => const SizedBox.shrink(),
+                      ),
+                    ),
+                  ),
+                ),
+                _buildFormattedText(quiz, isDark),
+              ] else ...[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (imgUrl.isNotEmpty) ...[
+                      GestureDetector(
+                        onTap: () => ImageZoomDialog.show(context, effectiveImg),
+                        child: Container(
+                          constraints: const BoxConstraints(
+                            minWidth: 70,
+                            maxWidth: 100,
+                            minHeight: 65,
+                            maxHeight: 95,
+                          ),
+                          alignment: Alignment.center,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(
+                              imgUrl,
+                              fit: BoxFit.contain,
+                              errorBuilder: (ctx, err, stack) => const SizedBox.shrink(),
+                            ),
                           ),
                         ),
                       ),
+                      const SizedBox(width: 12),
+                    ],
+                    Expanded(
+                      child: _buildFormattedText(quiz, isDark),
                     ),
-                    const SizedBox(width: 12),
                   ],
-                  Expanded(
-                    child: _buildFormattedText(quiz, isDark),
-                  ),
-                ],
-              ),
+                ),
+              ],
               const SizedBox(height: 12),
 
               // Audio Player Control Row (Only shown if Bangla MP3 audio URL is provided from admin panel)

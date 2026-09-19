@@ -51,15 +51,29 @@ class BookmarkManager {
       }
 
       // Combine unique questions by clean Italian text
+      // Local questions first, then server questions override with fresh data (images, voice, bangla)
       final Map<String, McqQuestion> uniqueMap = {};
-      for (var q in serverQuestions) {
+      for (var q in localQuestions) {
         if (q.italian.trim().isNotEmpty) {
           uniqueMap[_cleanKey(q.italian)] = q;
         }
       }
-      for (var q in localQuestions) {
+      for (var q in serverQuestions) {
         if (q.italian.trim().isNotEmpty) {
-          uniqueMap[_cleanKey(q.italian)] = q;
+          final key = _cleanKey(q.italian);
+          final existing = uniqueMap[key];
+          if (existing != null) {
+            uniqueMap[key] = q.copyWith(
+              image: (q.image != null && q.image!.trim().isNotEmpty) ? q.image : existing.image,
+              audio: (q.audio != null && q.audio!.trim().isNotEmpty) ? q.audio : existing.audio,
+              bangla: (q.bangla.trim().isNotEmpty) ? q.bangla : existing.bangla,
+              userNote: (q.userNote != null && q.userNote!.trim().isNotEmpty) ? q.userNote : existing.userNote,
+              giustoCount: q.giustoCount > 0 ? q.giustoCount : existing.giustoCount,
+              sbagliatoCount: q.sbagliatoCount > 0 ? q.sbagliatoCount : existing.sbagliatoCount,
+            );
+          } else {
+            uniqueMap[key] = q;
+          }
         }
       }
 
@@ -294,14 +308,27 @@ class BookmarkManager {
 
         // Merge server and local
         final Map<String, McqQuestion> uniqueMap = {};
-        for (var q in serverNoted) {
+        for (var q in localNoted) {
           if (q.italian.trim().isNotEmpty) {
             uniqueMap[_cleanKey(q.italian)] = q;
           }
         }
-        for (var q in localNoted) {
+        for (var q in serverNoted) {
           if (q.italian.trim().isNotEmpty) {
-            uniqueMap[_cleanKey(q.italian)] = q;
+            final key = _cleanKey(q.italian);
+            final existing = uniqueMap[key];
+            if (existing != null) {
+              uniqueMap[key] = q.copyWith(
+                image: (q.image != null && q.image!.trim().isNotEmpty) ? q.image : existing.image,
+                audio: (q.audio != null && q.audio!.trim().isNotEmpty) ? q.audio : existing.audio,
+                bangla: (q.bangla.trim().isNotEmpty) ? q.bangla : existing.bangla,
+                userNote: (q.userNote != null && q.userNote!.trim().isNotEmpty) ? q.userNote : existing.userNote,
+                giustoCount: q.giustoCount > 0 ? q.giustoCount : existing.giustoCount,
+                sbagliatoCount: q.sbagliatoCount > 0 ? q.sbagliatoCount : existing.sbagliatoCount,
+              );
+            } else {
+              uniqueMap[key] = q;
+            }
           }
         }
 
