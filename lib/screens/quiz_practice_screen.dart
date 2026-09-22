@@ -1195,6 +1195,7 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
                   ),
                 ],
               ),
+            ],
             // Study Note Box if available
             if (quiz.studyNotes.trim().isNotEmpty) ...[
               Container(
