@@ -614,9 +614,6 @@ class ApiService {
                   final map = Map<String, dynamic>.from(q);
                   map['chapter_name'] = map['chapter_name'] ?? cName;
                   map['chapter_id'] = map['chapter_id'] ?? cId;
-                  if ((map['image'] == null || map['image'].toString().isEmpty) && pageDetails['image'] != null) {
-                    map['image'] = pageDetails['image'];
-                  }
                   pool.add(map);
                 }
               }
@@ -640,9 +637,6 @@ class ApiService {
                 final map = Map<String, dynamic>.from(mq);
                 map['chapter_name'] = map['chapter_name'] ?? cName;
                 map['chapter_id'] = map['chapter_id'] ?? cId;
-                if ((map['image'] == null || map['image'].toString().isEmpty) && cp['image'] != null) {
-                  map['image'] = cp['image'];
-                }
                 pool.add(map);
               }
             }

@@ -82,9 +82,13 @@ class McqQuestion {
          rawImage.toLowerCase() == 'null' ||
          rawImage.toLowerCase() == 'undefined' ||
          rawImage.toLowerCase() == 'none' ||
+         rawImage.contains('/uploads/vocabulary/') ||
+         rawImage.contains('vocab_') ||
          rawImage.contains('/data/user/') ||
          rawImage.contains('/data/data/') ||
-         rawImage.contains('/storage/emulated/'))) {
+         rawImage.contains('/storage/emulated/') ||
+         rawImage.contains('placeholder') ||
+         rawImage.contains('default_image'))) {
       rawImage = null;
     }
 

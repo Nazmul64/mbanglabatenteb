@@ -716,9 +716,14 @@ class _CartelliScreenState extends State<CartelliScreen> {
         quiz.image!.trim().toLowerCase() != 'null' &&
         quiz.image!.trim().toLowerCase() != 'undefined' &&
         quiz.image!.trim().toLowerCase() != 'none' &&
+        !quiz.image!.contains('/uploads/vocabulary/') &&
+        !quiz.image!.contains('vocab_') &&
         !quiz.image!.contains('/data/user/') &&
         !quiz.image!.contains('/data/data/') &&
-        !quiz.image!.contains('/storage/emulated/')) {
+        !quiz.image!.contains('/storage/emulated/') &&
+        !quiz.image!.contains('scaled_IMG') &&
+        !quiz.image!.toLowerCase().contains('placeholder') &&
+        !quiz.image!.contains('default_image')) {
       return quiz.image!.trim();
     }
     return null;

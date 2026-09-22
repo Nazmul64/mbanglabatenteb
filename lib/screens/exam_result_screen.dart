@@ -470,9 +470,15 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
         item.image!.trim().isNotEmpty &&
         item.image!.toLowerCase() != 'null' &&
         item.image!.toLowerCase() != 'undefined' &&
+        item.image!.toLowerCase() != 'none' &&
+        !item.image!.contains('/uploads/vocabulary/') &&
+        !item.image!.contains('vocab_') &&
         !item.image!.contains('/data/user/') &&
         !item.image!.contains('/data/data/') &&
-        !item.image!.contains('/storage/emulated/');
+        !item.image!.contains('/storage/emulated/') &&
+        !item.image!.contains('scaled_IMG') &&
+        !item.image!.toLowerCase().contains('placeholder') &&
+        !item.image!.contains('default_image');
 
     final isThisAudioPlaying = _isPlayingAudio && _activeAudioIndex == item.index;
 

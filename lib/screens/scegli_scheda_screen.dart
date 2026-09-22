@@ -189,28 +189,21 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
                 }
               }
             }
-            // Fallback to first question's image or vocabulary image if page image is not directly defined
+            // Fallback to first question's explicit image if page image is not directly defined
             if (img == null || img.trim().isEmpty || img.trim().toLowerCase() == 'null') {
               final qList = (details['questions'] is List ? details['questions'] as List : (details['mcqs'] is List ? details['mcqs'] as List : null));
               if (qList != null && qList.isNotEmpty) {
                 for (final q in qList) {
                   if (q is Map) {
                     final qImg = (q['image'] ?? q['image_path'] ?? q['img'] ?? q['photo'] ?? q['image_url'])?.toString().trim();
-                    if (qImg != null && qImg.isNotEmpty && qImg.toLowerCase() != 'null' && qImg.toLowerCase() != 'undefined') {
+                    if (qImg != null &&
+                        qImg.isNotEmpty &&
+                        qImg.toLowerCase() != 'null' &&
+                        qImg.toLowerCase() != 'undefined' &&
+                        !qImg.contains('/uploads/vocabulary/') &&
+                        !qImg.contains('vocab_')) {
                       img = qImg;
                       break;
-                    }
-                    if (q['vocabulary'] is List && (q['vocabulary'] as List).isNotEmpty) {
-                      for (final v in q['vocabulary']) {
-                        if (v is Map) {
-                          final vImg = (v['image'] ?? v['image_path'] ?? v['img'] ?? v['photo'] ?? v['image_url'])?.toString().trim();
-                          if (vImg != null && vImg.isNotEmpty && vImg.toLowerCase() != 'null' && vImg.toLowerCase() != 'undefined') {
-                            img = vImg;
-                            break;
-                          }
-                        }
-                      }
-                      if (img != null) break;
                     }
                   }
                 }

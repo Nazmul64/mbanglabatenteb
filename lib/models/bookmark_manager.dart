@@ -13,6 +13,26 @@ class BookmarkManager {
 
   static String _cleanKey(String text) => text.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 
+  static String? cleanQuestionImage(String? img) {
+    if (img == null) return null;
+    final s = img.trim();
+    if (s.isEmpty ||
+        s.toLowerCase() == 'null' ||
+        s.toLowerCase() == 'undefined' ||
+        s.toLowerCase() == 'none' ||
+        s.contains('/uploads/vocabulary/') ||
+        s.contains('vocab_') ||
+        s.contains('/data/user/') ||
+        s.contains('/data/data/') ||
+        s.contains('/storage/emulated/') ||
+        s.contains('scaled_IMG') ||
+        s.toLowerCase().contains('placeholder') ||
+        s.contains('default_image')) {
+      return null;
+    }
+    return s;
+  }
+
   // ══════════════════════════════════════════════════════
   // 📌 1. BOOKMARKS / SAVED MCQS (Local + Server Sync)
   // ══════════════════════════════════════════════════════
@@ -34,7 +54,8 @@ class BookmarkManager {
                     : jsonItem));
         if (raw is Map) {
           final map = Map<String, dynamic>.from(raw);
-          serverQuestions.add(McqQuestion.fromJson(map));
+          final parsed = McqQuestion.fromJson(map);
+          serverQuestions.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
         }
       }
 
@@ -45,7 +66,8 @@ class BookmarkManager {
         try {
           final map = json.decode(item);
           if (map is Map<String, dynamic>) {
-            localQuestions.add(McqQuestion.fromJson(map));
+            final parsed = McqQuestion.fromJson(map);
+            localQuestions.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
           }
         } catch (_) {}
       }
@@ -62,9 +84,11 @@ class BookmarkManager {
         if (q.italian.trim().isNotEmpty) {
           final key = _cleanKey(q.italian);
           final existing = uniqueMap[key];
+          final cleanServerImg = cleanQuestionImage(q.image);
+          final cleanExistingImg = existing != null ? cleanQuestionImage(existing.image) : null;
           if (existing != null) {
             uniqueMap[key] = q.copyWith(
-              image: (q.image != null && q.image!.trim().isNotEmpty) ? q.image : existing.image,
+              image: cleanServerImg ?? cleanExistingImg,
               audio: (q.audio != null && q.audio!.trim().isNotEmpty) ? q.audio : existing.audio,
               bangla: (q.bangla.trim().isNotEmpty) ? q.bangla : existing.bangla,
               userNote: (q.userNote != null && q.userNote!.trim().isNotEmpty) ? q.userNote : existing.userNote,
@@ -72,7 +96,7 @@ class BookmarkManager {
               sbagliatoCount: q.sbagliatoCount > 0 ? q.sbagliatoCount : existing.sbagliatoCount,
             );
           } else {
-            uniqueMap[key] = q;
+            uniqueMap[key] = q.copyWith(image: cleanServerImg);
           }
         }
       }
@@ -180,7 +204,8 @@ class BookmarkManager {
       try {
         final map = json.decode(item);
         if (map is Map<String, dynamic>) {
-          results.add(McqQuestion.fromJson(map));
+          final parsed = McqQuestion.fromJson(map);
+          results.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
         }
       } catch (_) {}
     }
@@ -197,7 +222,10 @@ class BookmarkManager {
     final List<String> list = prefs.getStringList(_notedKey) ?? [];
     final targetKey = _cleanKey(question.italian);
     
-    final updatedQ = question.copyWith(userNote: noteText.trim());
+    final updatedQ = question.copyWith(
+      userNote: noteText.trim(),
+      image: cleanQuestionImage(question.image),
+    );
 
     // Remove existing entry for THIS exact question only
     list.removeWhere((item) {
@@ -284,7 +312,8 @@ class BookmarkManager {
       try {
         final map = json.decode(item);
         if (map is Map<String, dynamic>) {
-          localNoted.add(McqQuestion.fromJson(map));
+          final parsed = McqQuestion.fromJson(map);
+          localNoted.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
         }
       } catch (_) {}
     }
@@ -302,7 +331,8 @@ class BookmarkManager {
             final noteStr = (jsonItem is Map && jsonItem['note_text'] != null)
                 ? jsonItem['note_text'].toString()
                 : ((jsonItem is Map && jsonItem['note'] != null) ? jsonItem['note'].toString() : null);
-            serverNoted.add(noteStr != null ? baseQ.copyWith(userNote: noteStr) : baseQ);
+            final sanitized = baseQ.copyWith(image: cleanQuestionImage(baseQ.image));
+            serverNoted.add(noteStr != null ? sanitized.copyWith(userNote: noteStr) : sanitized);
           }
         }
 
@@ -317,9 +347,11 @@ class BookmarkManager {
           if (q.italian.trim().isNotEmpty) {
             final key = _cleanKey(q.italian);
             final existing = uniqueMap[key];
+            final cleanServerImg = cleanQuestionImage(q.image);
+            final cleanExistingImg = existing != null ? cleanQuestionImage(existing.image) : null;
             if (existing != null) {
               uniqueMap[key] = q.copyWith(
-                image: (q.image != null && q.image!.trim().isNotEmpty) ? q.image : existing.image,
+                image: cleanServerImg ?? cleanExistingImg,
                 audio: (q.audio != null && q.audio!.trim().isNotEmpty) ? q.audio : existing.audio,
                 bangla: (q.bangla.trim().isNotEmpty) ? q.bangla : existing.bangla,
                 userNote: (q.userNote != null && q.userNote!.trim().isNotEmpty) ? q.userNote : existing.userNote,
@@ -327,7 +359,7 @@ class BookmarkManager {
                 sbagliatoCount: q.sbagliatoCount > 0 ? q.sbagliatoCount : existing.sbagliatoCount,
               );
             } else {
-              uniqueMap[key] = q;
+              uniqueMap[key] = q.copyWith(image: cleanServerImg);
             }
           }
         }
@@ -382,6 +414,7 @@ class BookmarkManager {
     });
 
     final updatedQ = question.copyWith(
+      image: cleanQuestionImage(question.image),
       giustoCount: isCorrect ? (question.giustoCount + 1) : question.giustoCount,
       sbagliatoCount: !isCorrect ? (question.sbagliatoCount + 1) : question.sbagliatoCount,
     );
@@ -424,7 +457,7 @@ class BookmarkManager {
         italian: item.italian,
         bangla: item.bangla,
         isVero: item.isVero,
-        image: item.image,
+        image: cleanQuestionImage(item.image),
         audio: item.audio,
         vocabulary: item.vocabulary,
         userNote: item.userNote,
@@ -470,7 +503,8 @@ class BookmarkManager {
       try {
         final map = json.decode(item);
         if (map is Map<String, dynamic>) {
-          localCorrect.add(McqQuestion.fromJson(map));
+          final parsed = McqQuestion.fromJson(map);
+          localCorrect.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
         }
       } catch (_) {}
     }
@@ -488,7 +522,8 @@ class BookmarkManager {
                       ? jsonItem['cartello_question']
                       : jsonItem));
           if (raw is Map) {
-            serverCorrect.add(McqQuestion.fromJson(Map<String, dynamic>.from(raw)));
+            final parsed = McqQuestion.fromJson(Map<String, dynamic>.from(raw));
+            serverCorrect.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
           }
         }
 
@@ -501,7 +536,11 @@ class BookmarkManager {
         }
         for (var q in localCorrect) {
           if (q.italian.trim().isNotEmpty) {
-            uniqueMap[_cleanKey(q.italian)] = q;
+            final key = _cleanKey(q.italian);
+            final existing = uniqueMap[key];
+            final cleanExistingImg = existing != null ? cleanQuestionImage(existing.image) : null;
+            final cleanServerImg = cleanQuestionImage(q.image);
+            uniqueMap[key] = q.copyWith(image: cleanServerImg ?? cleanExistingImg);
           }
         }
 
@@ -527,7 +566,8 @@ class BookmarkManager {
       try {
         final map = json.decode(item);
         if (map is Map<String, dynamic>) {
-          localWrong.add(McqQuestion.fromJson(map));
+          final parsed = McqQuestion.fromJson(map);
+          localWrong.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
         }
       } catch (_) {}
     }
@@ -545,7 +585,8 @@ class BookmarkManager {
                       ? jsonItem['cartello_question']
                       : jsonItem));
           if (raw is Map) {
-            serverWrong.add(McqQuestion.fromJson(Map<String, dynamic>.from(raw)));
+            final parsed = McqQuestion.fromJson(Map<String, dynamic>.from(raw));
+            serverWrong.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
           }
         }
 
@@ -558,7 +599,11 @@ class BookmarkManager {
         }
         for (var q in localWrong) {
           if (q.italian.trim().isNotEmpty) {
-            uniqueMap[_cleanKey(q.italian)] = q;
+            final key = _cleanKey(q.italian);
+            final existing = uniqueMap[key];
+            final cleanExistingImg = existing != null ? cleanQuestionImage(existing.image) : null;
+            final cleanServerImg = cleanQuestionImage(q.image);
+            uniqueMap[key] = q.copyWith(image: cleanServerImg ?? cleanExistingImg);
           }
         }
 

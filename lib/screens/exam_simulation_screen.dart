@@ -218,6 +218,9 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
               rawImg.isNotEmpty &&
               rawImg.toLowerCase() != 'null' &&
               rawImg.toLowerCase() != 'undefined' &&
+              rawImg.toLowerCase() != 'none' &&
+              !rawImg.contains('/uploads/vocabulary/') &&
+              !rawImg.contains('vocab_') &&
               !rawImg.contains('/data/user/') &&
               !rawImg.contains('/data/data/') &&
               !rawImg.contains('/storage/emulated/')) {
@@ -1578,7 +1581,16 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                           if (currentQuestion.image != null &&
                               currentQuestion.image!.trim().isNotEmpty &&
                               currentQuestion.image!.toLowerCase() != 'null' &&
-                              currentQuestion.image!.toLowerCase() != 'undefined') ...[
+                              currentQuestion.image!.toLowerCase() != 'undefined' &&
+                              currentQuestion.image!.toLowerCase() != 'none' &&
+                              !currentQuestion.image!.contains('/uploads/vocabulary/') &&
+                              !currentQuestion.image!.contains('vocab_') &&
+                              !currentQuestion.image!.contains('/data/user/') &&
+                              !currentQuestion.image!.contains('/data/data/') &&
+                              !currentQuestion.image!.contains('/storage/emulated/') &&
+                              !currentQuestion.image!.contains('scaled_IMG') &&
+                              !currentQuestion.image!.toLowerCase().contains('placeholder') &&
+                              !currentQuestion.image!.contains('default_image')) ...[
                             GestureDetector(
                               onTap: () => ImageZoomDialog.show(context, currentQuestion.image!),
                               child: Container(

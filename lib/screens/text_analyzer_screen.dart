@@ -90,9 +90,6 @@ class _TextAnalyzerScreenState extends State<TextAnalyzerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -108,13 +105,13 @@ class _TextAnalyzerScreenState extends State<TextAnalyzerScreen> {
                   TextField(
                     controller: _controller,
                     maxLines: 8,
-                    style: const TextStyle(fontSize: 16, height: 1.5),
-                    decoration: const InputDecoration(
-                      hintText: 'আপনার বাংলা লেখা এখানে লিখুন বা পেস্ট করুন...',
+                    decoration: InputDecoration(
+                      hintText: 'এখানে টেক্সট পেস্ট করুন অথবা লিখুন...',
                       border: InputBorder.none,
+                      hintStyle: TextStyle(color: Colors.grey.shade400),
                     ),
                   ),
-                  const Divider(height: 20),
+                  const Divider(),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
@@ -164,6 +161,7 @@ class _TextAnalyzerScreenState extends State<TextAnalyzerScreen> {
             children: [
               _buildStatCard('শব্দ (Words)', '$_wordCount', Icons.wb_auto, AppTheme.primaryGradient),
               _buildStatCard('অক্ষর (Characters)', '$_charCount', Icons.abc, AppTheme.purpleGradient),
+              _buildStatCard('স্পেস ছাড়া অক্ষর', '$_charNoSpaces', Icons.space_bar, AppTheme.purpleGradient),
               _buildStatCard('বাক্য (Sentences)', '$_sentenceCount', Icons.wrap_text, AppTheme.sunsetGradient),
               _buildStatCard(
                 'বাংলা অক্ষর (Bangla)',
