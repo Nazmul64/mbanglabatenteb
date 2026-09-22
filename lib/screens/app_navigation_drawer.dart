@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'privacy_terms_screen.dart';
 import '../services/api_service.dart';
 
+class AppNavigationDrawer extends StatefulWidget {
   final VoidCallback? onTapHome;
   final VoidCallback? onTapTutorials;
   final VoidCallback? onTapDictionary;
