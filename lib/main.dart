@@ -96,18 +96,12 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   Future<void> _navigateToWithLoader(Widget targetScreen, {String title = 'পেজ লোড হচ্ছে...', bool isProtected = true}) async {
     if (isProtected) {
       final prefs = await SharedPreferences.getInstance();
-      final bool isActiveCached = prefs.getBool('app_client_is_active') ?? true;
+      final bool? isActiveCached = prefs.getBool('app_client_is_active');
       final phone = prefs.getString('app_client_phone');
       final sessionId = prefs.getString('app_client_session_id');
 
-      // Refresh license status in background without blocking screen transition
-      ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId).then((currentStatus) {
-        final bool active = (currentStatus == 'active');
-        prefs.setBool('app_client_is_active', active);
-      }).catchError((_) {});
-
-      if (!isActiveCached) {
-        // If explicitly cached as inactive, verify before opening
+      if (isActiveCached == null || isActiveCached == false) {
+        // If not yet verified or previously inactive, verify with server before opening
         final currentStatus = await ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId);
         final bool active = (currentStatus == 'active');
         await prefs.setBool('app_client_is_active', active);
@@ -115,12 +109,18 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
           if (mounted) _showLicenseRequiredDialog();
           return;
         }
+      } else {
+        // Refresh license status in background without blocking screen transition
+        ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId).then((currentStatus) {
+          final bool active = (currentStatus == 'active');
+          prefs.setBool('app_client_is_active', active);
+        }).catchError((_) {});
       }
     }
 
     if (!mounted) return;
 
-    // Instant, seamless navigation in <100ms
+    // Instant, seamless navigation
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => targetScreen),
@@ -136,11 +136,11 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
           children: [
             Icon(Icons.lock_rounded, color: Colors.amber, size: 28),
             SizedBox(width: 10),
-            Text('লাইসেন্স অ্যাক্টিভেশন', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+            Text('লাইসেন্স আবশ্যক', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
           ],
         ),
         content: const Text(
-          'Please activate your license to access this feature.\n(এই ফিচারটি ব্যবহার করতে অনুগ্রহ করে আপনার লাইসেন্স এক্টিভ করুন।)',
+          'এই ফিচারটি ব্যবহার করতে রেজিস্ট্রেশন ও অ্যাক্টিভ লাইসেন্স আবশ্যক।\n(Please register with First Name, Last Name & Phone Number to activate your license.)',
           style: TextStyle(fontSize: 13.5, height: 1.45, color: Colors.black87),
         ),
         actions: [
@@ -159,8 +159,8 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             ),
-            icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
-            label: const Text('Chat with Admin', style: TextStyle(fontWeight: FontWeight.bold)),
+            icon: const Icon(Icons.app_registration_rounded, size: 18),
+            label: const Text('রেজিস্ট্রেশন / চ্যাট করুন', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),

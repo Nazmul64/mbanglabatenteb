@@ -113,14 +113,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _getIllustrationForCard(String screenKey, String iconClass, String? iconUrl, String title) {
-    if (iconUrl != null && iconUrl.isNotEmpty) {
-      return CardIllustration(
-        child: Image.network(
-          iconUrl,
-          fit: BoxFit.contain,
-          errorBuilder: (context, error, stackTrace) => const Icon(Icons.star_rounded, size: 40, color: Colors.blue),
-        ),
-      );
+    if (iconUrl != null && iconUrl.trim().isNotEmpty && iconUrl.toLowerCase() != 'null' && iconUrl.toLowerCase() != 'undefined') {
+      final formatted = ApiService.formatImageUrl(iconUrl);
+      if (formatted.isNotEmpty) {
+        return CardIllustration(
+          child: Image.network(
+            formatted,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) => const Icon(Icons.star_rounded, size: 40, color: Colors.blue),
+          ),
+        );
+      }
     }
     final key = (screenKey + ' ' + iconClass + ' ' + title).toLowerCase();
     if (key.contains('tutorial') || key.contains('lezioni')) return const TutorialsIllustration();

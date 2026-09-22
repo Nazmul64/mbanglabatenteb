@@ -74,27 +74,11 @@ class McqQuestion {
       json['image_url'] ??
       json['img'] ??
       json['photo'] ??
-      json['picture'] ??
-      json['cover_image'] ??
-      json['page_image'] ??
-      json['thumbnail'] ??
-      json['file_path'] ??
-      json['media_url'] ??
-      json['media']
-    )?.toString();
+      json['picture']
+    )?.toString().trim();
 
-    if (rawImage == null || rawImage.trim().isEmpty || rawImage.trim().toLowerCase() == 'null' || rawImage.trim().toLowerCase() == 'undefined') {
-      if (parsedVocab != null && parsedVocab.isNotEmpty) {
-        for (var v in parsedVocab) {
-          if (v is Map) {
-            final vImg = (v['image'] ?? v['question_image'] ?? v['image_path'] ?? v['img'] ?? v['photo'] ?? v['image_url'])?.toString().trim();
-            if (vImg != null && vImg.isNotEmpty && vImg.toLowerCase() != 'null' && vImg.toLowerCase() != 'undefined') {
-              rawImage = vImg;
-              break;
-            }
-          }
-        }
-      }
+    if (rawImage != null && (rawImage.isEmpty || rawImage.toLowerCase() == 'null' || rawImage.toLowerCase() == 'undefined' || rawImage.toLowerCase() == 'none' || rawImage.startsWith('/data/user/'))) {
+      rawImage = null;
     }
 
     return McqQuestion(

@@ -714,24 +714,9 @@ class _CartelliScreenState extends State<CartelliScreen> {
     if (quiz.image != null &&
         quiz.image!.trim().isNotEmpty &&
         quiz.image!.trim().toLowerCase() != 'null' &&
-        quiz.image!.trim().toLowerCase() != 'undefined') {
-      return quiz.image;
-    }
-    if (quiz.vocabulary != null) {
-      for (var v in quiz.vocabulary!) {
-        if (v is Map) {
-          final img = (v['image'] ?? v['image_path'] ?? v['img'] ?? v['photo'] ?? v['image_url'])?.toString().trim();
-          if (img != null && img.isNotEmpty && img.toLowerCase() != 'null' && img.toLowerCase() != 'undefined') {
-            return img;
-          }
-        }
-      }
-    }
-    if (_pageImage != null &&
-        _pageImage!.trim().isNotEmpty &&
-        _pageImage!.trim().toLowerCase() != 'null' &&
-        _pageImage!.trim().toLowerCase() != 'undefined') {
-      return _pageImage;
+        quiz.image!.trim().toLowerCase() != 'undefined' &&
+        quiz.image!.trim().toLowerCase() != 'none') {
+      return quiz.image!.trim();
     }
     return null;
   }

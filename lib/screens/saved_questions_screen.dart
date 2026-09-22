@@ -569,18 +569,9 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
     if (quiz.image != null &&
         quiz.image!.trim().isNotEmpty &&
         quiz.image!.trim().toLowerCase() != 'null' &&
-        quiz.image!.trim().toLowerCase() != 'undefined') {
-      return quiz.image;
-    }
-    if (quiz.vocabulary != null) {
-      for (var v in quiz.vocabulary!) {
-        if (v is Map) {
-          final img = (v['image'] ?? v['image_path'] ?? v['img'] ?? v['photo'] ?? v['image_url'])?.toString().trim();
-          if (img != null && img.isNotEmpty && img.toLowerCase() != 'null' && img.toLowerCase() != 'undefined') {
-            return img;
-          }
-        }
-      }
+        quiz.image!.trim().toLowerCase() != 'undefined' &&
+        quiz.image!.trim().toLowerCase() != 'none') {
+      return quiz.image!.trim();
     }
     return null;
   }
@@ -831,7 +822,34 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
+              // Study Note Box if available
+              if (quiz.studyNotes.trim().isNotEmpty) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF2D2311) : const Color(0xFFFEF3C7),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.4)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.edit_note_rounded, size: 20, color: Color(0xFFD97706)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          quiz.studyNotes.trim(),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: isDark ? const Color(0xFFFCD34D) : const Color(0xFF92400E),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
 
               // 5 Action Buttons Row: ITALIANO, স্পিড, অনুবাদ, সেভ, নোট

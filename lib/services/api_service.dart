@@ -107,7 +107,12 @@ class ApiService {
         cleanPath.toLowerCase() == 'none') {
       return '';
     }
-    if (cleanPath.startsWith('file://')) return '';
+    if (cleanPath.startsWith('file://') ||
+        cleanPath.startsWith('/data/user/') ||
+        cleanPath.startsWith('/data/data/') ||
+        cleanPath.startsWith('/storage/emulated/')) {
+      return '';
+    }
 
     // Ignore/reject any seeder image files
     final lower = cleanPath.toLowerCase();
@@ -1193,7 +1198,7 @@ class ApiService {
     _authToken = token;
   }
 
-  /// GET /api/v1/client/status
+  /// GET /api/v1/license/status or /client/status
   static Future<Map<String, dynamic>?> fetchClientStatus({String? sessionId, String? phone}) async {
     try {
       final authParams = await _getUserAuthParams();
@@ -1207,7 +1212,9 @@ class ApiService {
         queryParams['user_phone'] = effectivePhone;
       }
 
-      final response = await _getWithFallback('/client/status', queryParameters: queryParams.isNotEmpty ? queryParams : null, useCache: false);
+      final response = await _getWithFallback('/license/status', queryParameters: queryParams.isNotEmpty ? queryParams : null, useCache: false) ??
+          await _getWithFallback('/client/status', queryParameters: queryParams.isNotEmpty ? queryParams : null, useCache: false) ??
+          await _getWithFallback('/settings', queryParameters: queryParams.isNotEmpty ? queryParams : null, useCache: false);
       return _extractMap(response);
     } catch (e) {
       debugPrint('Error fetching client status: $e');
@@ -1219,14 +1226,22 @@ class ApiService {
   static Future<String> checkLicenseStatus({String? userPhone, String? sessionId}) async {
     final statusMap = await fetchClientStatus(sessionId: sessionId, phone: userPhone);
     if (statusMap != null) {
-      final bool isActive = (statusMap['free_access_mode'] == true ||
-          statusMap['qr_protection_enabled'] == false ||
+      final bool isFreeAccess = statusMap['protection_disabled'] == true ||
+          statusMap['free_access_mode'] == true ||
+          statusMap['qr_protection_enabled'] == false;
+      final bool isExplicitlyInactive = statusMap['status'] == 'inactive' ||
+          statusMap['license_status'] == 'inactive' ||
+          (statusMap.containsKey('is_active') && statusMap['is_active'] == false && !isFreeAccess);
+      if (isExplicitlyInactive) return 'inactive';
+
+      final bool isActive = isFreeAccess ||
           statusMap['is_active'] == true ||
           statusMap['license_status'] == 'active' ||
-          statusMap['status'] == 'active');
-      return isActive ? 'active' : (statusMap['license_status'] ?? statusMap['status'] ?? 'inactive').toString();
+          statusMap['status'] == 'active' ||
+          (statusMap['success'] == true && statusMap['status'] != 'inactive');
+      return isActive ? 'active' : 'inactive';
     }
-    return 'active';
+    return 'inactive';
   }
 
 
