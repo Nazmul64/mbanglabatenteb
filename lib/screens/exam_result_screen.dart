@@ -469,9 +469,15 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
     final hasImage = item.image != null &&
         item.image!.trim().isNotEmpty &&
         item.image!.toLowerCase() != 'null' &&
-        item.image!.toLowerCase() != 'undefined';
+        item.image!.toLowerCase() != 'undefined' &&
+        !item.image!.contains('/data/user/') &&
+        !item.image!.contains('/data/data/') &&
+        !item.image!.contains('/storage/emulated/');
 
     final isThisAudioPlaying = _isPlayingAudio && _activeAudioIndex == item.index;
+
+    final formattedImg = hasImage ? ApiService.formatImageUrl(item.image) : '';
+    final showImageWidget = formattedImg.isNotEmpty;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -510,7 +516,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (hasImage) ...[
+                if (showImageWidget) ...[
                   ClipRRect(
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
@@ -522,11 +528,9 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Image.network(
-                        ApiService.formatImageUrl(item.image),
+                        formattedImg,
                         fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) => const Center(
-                          child: Icon(Icons.broken_image_rounded, size: 28, color: Colors.grey),
-                        ),
+                        errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
                       ),
                     ),
                   ),

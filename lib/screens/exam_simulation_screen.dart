@@ -211,18 +211,19 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
             parsedVocab = rawVocab;
           }
 
-          String? img = (q['image'] ?? q['image_path'] ?? q['img'] ?? q['photo'] ?? q['image_url'] ?? q['cover_image'] ?? q['page_image'])?.toString();
-          if (img == null || img.trim().isEmpty || img.trim().toLowerCase() == 'null' || img.trim().toLowerCase() == 'undefined') {
-            if (parsedVocab != null && parsedVocab.isNotEmpty) {
-              for (var v in parsedVocab) {
-                if (v is Map) {
-                  final vImg = (v['image'] ?? v['image_path'] ?? v['img'] ?? v['photo'] ?? v['image_url'])?.toString().trim();
-                  if (vImg != null && vImg.isNotEmpty && vImg.toLowerCase() != 'null' && vImg.toLowerCase() != 'undefined') {
-                    img = vImg;
-                    break;
-                  }
-                }
-              }
+          // Strictly only explicit question image (NO cover_image, NO page_image, NO vocabulary underlines fallback)
+          String? img;
+          final rawImg = (q['image'] ?? q['image_path'] ?? q['img'] ?? q['photo'] ?? q['image_url'])?.toString().trim();
+          if (rawImg != null &&
+              rawImg.isNotEmpty &&
+              rawImg.toLowerCase() != 'null' &&
+              rawImg.toLowerCase() != 'undefined' &&
+              !rawImg.contains('/data/user/') &&
+              !rawImg.contains('/data/data/') &&
+              !rawImg.contains('/storage/emulated/')) {
+            final formatted = ApiService.formatImageUrl(rawImg);
+            if (formatted.isNotEmpty) {
+              img = formatted;
             }
           }
 

@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import 'package:lottie/lottie.dart';
 import '../services/api_service.dart';
 import '../models/slider_model.dart';
 import '../models/home_card_model.dart';
@@ -112,19 +114,61 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return widget.onTapTutorials;
   }
 
-  Widget _getIllustrationForCard(String screenKey, String iconClass, String? iconUrl, String title) {
-    if (iconUrl != null && iconUrl.trim().isNotEmpty && iconUrl.toLowerCase() != 'null' && iconUrl.toLowerCase() != 'undefined') {
-      final formatted = ApiService.formatImageUrl(iconUrl);
-      if (formatted.isNotEmpty) {
+  Widget _getIllustrationForCard(HomeCardModel card) {
+    // 1. Lottie Animation
+    if (card.mediaType == 'lottie' && card.lottieUrl != null && card.lottieUrl!.trim().isNotEmpty) {
+      final lottieFormatted = ApiService.formatImageUrl(card.lottieUrl!);
+      if (lottieFormatted.isNotEmpty) {
         return CardIllustration(
-          child: Image.network(
-            formatted,
+          child: Lottie.network(
+            lottieFormatted,
+            height: 80,
+            width: 80,
             fit: BoxFit.contain,
-            errorBuilder: (context, error, stackTrace) => const Icon(Icons.star_rounded, size: 40, color: Colors.blue),
+            errorBuilder: (context, error, stackTrace) => _getFallbackBuiltInIllustration(card.screenKey, card.iconClass, card.title),
           ),
         );
       }
     }
+
+    // 2. Image (SVG or Raster WebP / PNG / JPG)
+    final rawImg = (card.imageUrl != null && card.imageUrl!.trim().isNotEmpty)
+        ? card.imageUrl!
+        : ((card.iconUrl != null && card.iconUrl!.trim().isNotEmpty) ? card.iconUrl! : '');
+
+    if (rawImg.isNotEmpty && rawImg.toLowerCase() != 'null' && rawImg.toLowerCase() != 'undefined') {
+      final formatted = ApiService.formatImageUrl(rawImg);
+      if (formatted.isNotEmpty) {
+        final isSvg = formatted.toLowerCase().endsWith('.svg') || formatted.toLowerCase().contains('.svg');
+        if (isSvg) {
+          return CardIllustration(
+            child: SvgPicture.network(
+              formatted,
+              height: 80,
+              width: 80,
+              fit: BoxFit.contain,
+              placeholderBuilder: (context) => _getFallbackBuiltInIllustration(card.screenKey, card.iconClass, card.title),
+            ),
+          );
+        } else {
+          return CardIllustration(
+            child: Image.network(
+              formatted,
+              height: 80,
+              width: 80,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) => _getFallbackBuiltInIllustration(card.screenKey, card.iconClass, card.title),
+            ),
+          );
+        }
+      }
+    }
+
+    // 3. High quality built-in illustration fallback
+    return _getFallbackBuiltInIllustration(card.screenKey, card.iconClass, card.title);
+  }
+
+  Widget _getFallbackBuiltInIllustration(String screenKey, String iconClass, String title) {
     final key = (screenKey + ' ' + iconClass + ' ' + title).toLowerCase();
     if (key.contains('tutorial') || key.contains('lezioni')) return const TutorialsIllustration();
     if (key.contains('tasbih') || key.contains('test')) return const TasbihIllustration();
@@ -144,7 +188,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (key.contains('manuale') || key.contains('theory') || key.contains('book')) return const ManualeIllustration();
     if (key.contains('social') || key.contains('community') || key.contains('feed')) return const PatenteSocialIllustration();
     if (key.contains('translation') || key.contains('translate') || key.contains('language')) return const TranslationIllustration();
-    return const CardIllustration(child: Icon(Icons.star_rounded, size: 40, color: Colors.blue));
+    return const CardIllustration(child: Icon(Icons.school_rounded, size: 42, color: Color(0xFF10B981)));
   }
 
   @override
@@ -393,12 +437,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           children: [
             Expanded(
               child: _buildNavigationCard(
-                illustration: _getIllustrationForCard(
-                  screenKey1,
-                  card1.iconClass,
-                  card1.iconUrl,
-                  title1,
-                ),
+                illustration: _getIllustrationForCard(card1),
                 title: title1,
                 subtitle: subtitle1,
                 onTap: _getCallbackForScreenKey(screenKey1),
@@ -409,12 +448,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Expanded(
               child: (card2 != null && title2 != null && subtitle2 != null)
                   ? _buildNavigationCard(
-                      illustration: _getIllustrationForCard(
-                        screenKey2,
-                        card2.iconClass,
-                        card2.iconUrl,
-                        title2,
-                      ),
+                      illustration: _getIllustrationForCard(card2),
                       title: title2,
                       subtitle: subtitle2,
                       onTap: _getCallbackForScreenKey(screenKey2),
