@@ -2,21 +2,24 @@ import 'package:flutter/material.dart';
 import 'privacy_terms_screen.dart';
 import '../services/api_service.dart';
 
-class AppNavigationDrawer extends StatefulWidget {
   final VoidCallback? onTapHome;
   final VoidCallback? onTapTutorials;
   final VoidCallback? onTapDictionary;
   final VoidCallback? onTapCartelli;
+  final VoidCallback? onTapSavedQuestions;
+  final VoidCallback? onTapNotedQuestions;
   final VoidCallback? onTapProfile;
 
   const AppNavigationDrawer({
-    Key? key,
+    super.key,
     this.onTapHome,
     this.onTapTutorials,
     this.onTapDictionary,
     this.onTapCartelli,
+    this.onTapSavedQuestions,
+    this.onTapNotedQuestions,
     this.onTapProfile,
-  }) : super(key: key);
+  });
 
   @override
   State<AppNavigationDrawer> createState() => _AppNavigationDrawerState();
@@ -236,6 +239,30 @@ class _AppNavigationDrawerState extends State<AppNavigationDrawer> {
                       onTap: () {
                         Navigator.pop(context);
                         widget.onTapCartelli!();
+                      },
+                    ),
+
+                  if (widget.onTapSavedQuestions != null)
+                    _buildDrawerItem(
+                      context: context,
+                      icon: Icons.bookmark_rounded,
+                      iconColor: Colors.red,
+                      title: 'সেভ করা এমসিকিউ (Saved MCQs)',
+                      onTap: () {
+                        Navigator.pop(context);
+                        widget.onTapSavedQuestions!();
+                      },
+                    ),
+
+                  if (widget.onTapNotedQuestions != null)
+                    _buildDrawerItem(
+                      context: context,
+                      icon: Icons.note_alt_rounded,
+                      iconColor: const Color(0xFF10B981),
+                      title: 'নোট করা এমসিকিউ (Noted MCQs)',
+                      onTap: () {
+                        Navigator.pop(context);
+                        widget.onTapNotedQuestions!();
                       },
                     ),
 

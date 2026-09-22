@@ -551,6 +551,8 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
         onTapTutorials: _navigateToTutorials,
         onTapDictionary: _navigateToDictionary,
         onTapCartelli: _navigateToCartelli,
+        onTapSavedQuestions: _navigateToSavedQuestions,
+        onTapNotedQuestions: _navigateToNotedQuestions,
         onTapProfile: _navigateToProfile,
       ),
       body: Stack(

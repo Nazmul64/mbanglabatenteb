@@ -77,7 +77,14 @@ class McqQuestion {
       json['picture']
     )?.toString().trim();
 
-    if (rawImage != null && (rawImage.isEmpty || rawImage.toLowerCase() == 'null' || rawImage.toLowerCase() == 'undefined' || rawImage.toLowerCase() == 'none' || rawImage.startsWith('/data/user/'))) {
+    if (rawImage != null &&
+        (rawImage.isEmpty ||
+         rawImage.toLowerCase() == 'null' ||
+         rawImage.toLowerCase() == 'undefined' ||
+         rawImage.toLowerCase() == 'none' ||
+         rawImage.contains('/data/user/') ||
+         rawImage.contains('/data/data/') ||
+         rawImage.contains('/storage/emulated/'))) {
       rawImage = null;
     }
 

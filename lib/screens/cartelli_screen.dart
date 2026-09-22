@@ -715,7 +715,10 @@ class _CartelliScreenState extends State<CartelliScreen> {
         quiz.image!.trim().isNotEmpty &&
         quiz.image!.trim().toLowerCase() != 'null' &&
         quiz.image!.trim().toLowerCase() != 'undefined' &&
-        quiz.image!.trim().toLowerCase() != 'none') {
+        quiz.image!.trim().toLowerCase() != 'none' &&
+        !quiz.image!.contains('/data/user/') &&
+        !quiz.image!.contains('/data/data/') &&
+        !quiz.image!.contains('/storage/emulated/')) {
       return quiz.image!.trim();
     }
     return null;
