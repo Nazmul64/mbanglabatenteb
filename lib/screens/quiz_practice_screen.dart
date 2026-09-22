@@ -1017,6 +1017,11 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
                   ),
                   Row(
                     children: [
+                      // Answer Pill (VERO / FALSO) when Eye button is clicked
+                      if (quiz.showAnswer) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          margin: const EdgeInsets.only(right: 6),
                           decoration: BoxDecoration(
                             color: quiz.isVero
                                 ? const Color(0xFF22C55E).withOpacity(0.15)

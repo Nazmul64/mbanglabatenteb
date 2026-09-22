@@ -822,6 +822,7 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
                     ),
                   ],
                 ),
+              ],
               // Study Note Box if available
               if (quiz.studyNotes.trim().isNotEmpty) ...[
                 Container(
