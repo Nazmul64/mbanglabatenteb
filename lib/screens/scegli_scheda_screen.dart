@@ -371,13 +371,18 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Scegli Scheda'),
-        backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.green.shade600,
+        title: const Text('Scegli Scheda', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white)),
+        centerTitle: false,
+        backgroundColor: isDark ? const Color(0xFF1E293B) : const Color(0xFF4CAF50),
         foregroundColor: Colors.white,
         elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
-      floatingActionButton: Container(
-        margin: const EdgeInsets.only(bottom: 12, right: 8),
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(bottom: 8, right: 4),
         child: ElevatedButton(
           onPressed: _startSelectedQuiz,
           style: ElevatedButton.styleFrom(
@@ -405,6 +410,7 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
           ),
         ),
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: Stack(
         children: [
           Positioned.fill(
@@ -628,51 +634,39 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
                   ),
                 ),
               ],
-              const SizedBox(height: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              const SizedBox(height: 14),
+
+              // Progresso Title (Centered)
+              Center(
+                child: Text(
+                  'Progresso',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: isDark ? Colors.white60 : Colors.grey.shade600,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // 4 Stat Columns: Corrette, Errori, Non risposte, Totale
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _buildStatText('Corrette: ', '$correctVal', const Color(0xFF4CAF50)),
-                      _buildStatText('Errori: ', '$errorsVal', const Color(0xFFEF4444)),
-                      _buildStatText('Non risposte: ', '$unansweredVal', const Color(0xFFF59E0B)),
-                      _buildStatText('Totale: ', '$totalVal', isDark ? Colors.white70 : Colors.black87),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      height: 8,
-                      color: isDark ? Colors.white10 : Colors.grey.shade200,
-                      child: Row(
-                        children: [
-                          if (correctShare > 0)
-                            Expanded(
-                              flex: (correctShare * 1000).round(),
-                              child: Container(color: const Color(0xFF4CAF50)),
-                            ),
-                          if (errorShare > 0)
-                            Expanded(
-                              flex: (errorShare * 1000).round(),
-                              child: Container(color: const Color(0xFFEF4444)),
-                            ),
-                          if (unansweredShare > 0)
-                            Expanded(
-                              flex: (unansweredShare * 1000).round(),
-                              child: Container(color: const Color(0xFFF59E0B)),
-                            ),
-                          if (totalVal == 0)
-                            Expanded(
-                              child: Container(color: Colors.transparent),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
+                  _buildStatColumn('Corrette', '$correctVal', const Color(0xFF4CAF50), isDark),
+                  _buildStatColumn('Errori', '$errorsVal', const Color(0xFFEF4444), isDark),
+                  _buildStatColumn('Non risposte', '$unansweredVal', isDark ? Colors.white70 : Colors.black87, isDark),
+                  _buildStatColumn('Totale', '$totalVal', isDark ? Colors.white70 : Colors.black87, isDark),
                 ],
+              ),
+              const SizedBox(height: 10),
+
+              // Multi-Color Progress Bar
+              _buildMultiColorProgressBar(
+                correct: correctVal,
+                errors: errorsVal,
+                total: totalVal,
+                isDark: isDark,
               ),
             ],
           ),
@@ -681,14 +675,83 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
     );
   }
 
-  Widget _buildStatText(String label, String value, Color color) {
-    return RichText(
-      text: TextSpan(
-        style: const TextStyle(fontSize: 11),
-        children: [
-          TextSpan(text: label, style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.w500)),
-          TextSpan(text: value, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
-        ],
+  Widget _buildStatColumn(String label, String value, Color valueColor, bool isDark) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: isDark ? Colors.white60 : Colors.grey.shade600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: isDark ? Colors.white : Colors.black87,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMultiColorProgressBar({
+    required int correct,
+    required int errors,
+    required int total,
+    required bool isDark,
+  }) {
+    final totalVal = total > 0 ? total : 0;
+    final correctVal = correct.clamp(0, totalVal);
+    final errorsVal = errors.clamp(0, totalVal);
+    final unansweredVal = (totalVal - (correctVal + errorsVal)).clamp(0, totalVal);
+
+    final double correctFlex = totalVal > 0 ? (correctVal / totalVal) : 0.0;
+    final double errorFlex = totalVal > 0 ? (errorsVal / totalVal) : 0.0;
+    final double unansweredFlex = totalVal > 0 ? (unansweredVal / totalVal) : 1.0;
+
+    return Container(
+      height: 14,
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white12 : const Color(0xFFE5E7EB),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isDark ? Colors.white24 : const Color(0xFFCBD5E1),
+          width: 1.2,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(9),
+        child: Row(
+          children: [
+            if (correctVal > 0)
+              Expanded(
+                flex: (correctFlex * 1000).round(),
+                child: Container(
+                  color: const Color(0xFF4CAF50),
+                ),
+              ),
+            if (errorsVal > 0)
+              Expanded(
+                flex: (errorFlex * 1000).round(),
+                child: Container(
+                  color: const Color(0xFFEF4444),
+                ),
+              ),
+            if (unansweredVal > 0 || totalVal == 0)
+              Expanded(
+                flex: totalVal > 0 ? (unansweredFlex * 1000).round() : 1000,
+                child: Container(
+                  color: isDark ? Colors.white10 : const Color(0xFFE5E7EB),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

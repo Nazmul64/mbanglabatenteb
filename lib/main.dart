@@ -512,41 +512,6 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
                 onPressed: _showQRScannerDemo,
                 tooltip: 'QR স্ক্যানার',
               ),
-
-              // Button 5: HOW TO Badge
-              GestureDetector(
-                onTap: _showHelpBottomSheet,
-                child: Container(
-                  width: 44,
-                  height: 32,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFFF8A65), Color(0xFFFF5252)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(8),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFFFF5252).withOpacity(0.25),
-                        blurRadius: 4,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: const Text(
-                    'HOW\nTO?',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 7.5,
-                      fontWeight: FontWeight.w900,
-                      height: 1.1,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
             ],
           ),
         ),

@@ -402,16 +402,44 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('ARGOMENTI', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-        centerTitle: true,
-        backgroundColor: isDark ? const Color(0xFF121829) : Colors.white,
-        foregroundColor: isDark ? Colors.white : Colors.black87,
-        elevation: 0.5,
+        title: const Text('Scegli Categoria', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white)),
+        centerTitle: false,
+        backgroundColor: isDark ? const Color(0xFF1E293B) : const Color(0xFF4CAF50),
+        foregroundColor: Colors.white,
+        elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
+          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
       ),
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(bottom: 8, right: 4),
+        child: ElevatedButton(
+          onPressed: _startSelectedQuiz,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF22C55E),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+            elevation: 6,
+            shadowColor: Colors.black38,
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.quiz_rounded, size: 18, color: Colors.white),
+              SizedBox(width: 6),
+              Text(
+                'MCQ',
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: Colors.white, letterSpacing: 0.5),
+              ),
+              SizedBox(width: 4),
+              Icon(Icons.chevron_right_rounded, size: 20, color: Colors.white),
+            ],
+          ),
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: Stack(
         children: [
           Positioned.fill(
@@ -429,30 +457,6 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Sub-header Row matching Screenshot 2: "Tutti i Capitoli" & "25 Capitoli"
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Tutti i Capitoli',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: isDark ? Colors.white10 : Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade300),
-                        ),
-                        child: Text(
-                          '${_categories.length} Capitoli',
-                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
                   // Action buttons (Unselect All, Select [hidden when active], Select All)
                   Row(
                     children: [
@@ -460,13 +464,13 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
                         child: ElevatedButton(
                           onPressed: _unselectAll,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: isDark ? Colors.white10 : Colors.grey.shade100,
+                            backgroundColor: isDark ? Colors.white10 : Colors.grey.shade200,
                             foregroundColor: isDark ? Colors.white70 : Colors.black87,
                             elevation: 0,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                             padding: const EdgeInsets.symmetric(vertical: 8),
                           ),
-                          child: const Text('Unselect All', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          child: const Text('Unselect All', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                         ),
                       ),
                       if (!_isSelectActive) ...[
@@ -475,13 +479,13 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
                           child: ElevatedButton(
                             onPressed: _activateSelectMode,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: isDark ? Colors.white10 : Colors.grey.shade100,
+                              backgroundColor: isDark ? Colors.white10 : Colors.grey.shade200,
                               foregroundColor: isDark ? Colors.white70 : Colors.black87,
                               elevation: 0,
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                               padding: const EdgeInsets.symmetric(vertical: 8),
                             ),
-                            child: const Text('Select', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            child: const Text('Select', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                           ),
                         ),
                       ],
@@ -490,25 +494,26 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
                         child: ElevatedButton(
                           onPressed: _selectAll,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: isDark ? Colors.white10 : Colors.grey.shade100,
+                            backgroundColor: isDark ? Colors.white10 : Colors.grey.shade200,
                             foregroundColor: isDark ? Colors.white70 : Colors.black87,
                             elevation: 0,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                             padding: const EdgeInsets.symmetric(vertical: 8),
                           ),
-                          child: const Text('Select All', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          child: const Text('Select All', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 16),
 
-                  // Categories List matching Screenshots 2 & 3
+                  // Categories List matching Screenshot 1
                   Expanded(
                     child: _isLoading
                         ? const Center(child: CircularProgressIndicator())
                         : ListView.separated(
                             physics: const BouncingScrollPhysics(),
+                            padding: const EdgeInsets.only(bottom: 90),
                             itemCount: _categories.length,
                             separatorBuilder: (context, index) => const SizedBox(height: 16),
                             itemBuilder: (context, index) {
@@ -517,36 +522,6 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
                             },
                           ),
                   ),
-                ],
-              ),
-            ),
-          ),
-
-          // Floating Action Button MCQ >
-          Positioned(
-            bottom: 24,
-            right: 24,
-            child: ElevatedButton(
-              onPressed: _startSelectedQuiz,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF22C55E),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
-                elevation: 6,
-                shadowColor: Colors.black38,
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.quiz_rounded, size: 18, color: Colors.white),
-                  SizedBox(width: 6),
-                  Text(
-                    'MCQ',
-                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: Colors.white, letterSpacing: 0.5),
-                  ),
-                  SizedBox(width: 4),
-                  Icon(Icons.chevron_right_rounded, size: 20, color: Colors.white),
                 ],
               ),
             ),
@@ -570,7 +545,7 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -608,6 +583,8 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
                         fontSize: 14,
                         fontWeight: FontWeight.w900,
                       ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
@@ -619,8 +596,124 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
                 borderRadius: BorderRadius.circular(16),
                 child: cat.diagram,
               ),
+
+              const SizedBox(height: 14),
+
+              // Progresso Title (Centered)
+              Center(
+                child: Text(
+                  'Progresso',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: isDark ? Colors.white60 : Colors.grey.shade600,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // 4 Stat Columns: Corrette, Errori, Non risposte, Totale
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _buildStatColumn('Corrette', '${cat.correct}', const Color(0xFF4CAF50), isDark),
+                  _buildStatColumn('Errori', '${cat.errors}', const Color(0xFFEF4444), isDark),
+                  _buildStatColumn('Non risposte', '${cat.unanswered}', isDark ? Colors.white70 : Colors.black87, isDark),
+                  _buildStatColumn('Totale', '${cat.total}', isDark ? Colors.white70 : Colors.black87, isDark),
+                ],
+              ),
+              const SizedBox(height: 10),
+
+              // Multi-Color Progress Bar
+              _buildMultiColorProgressBar(
+                correct: cat.correct,
+                errors: cat.errors,
+                total: cat.total,
+                isDark: isDark,
+              ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatColumn(String label, String value, Color valueColor, bool isDark) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: isDark ? Colors.white60 : Colors.grey.shade600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: isDark ? Colors.white : Colors.black87,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMultiColorProgressBar({
+    required int correct,
+    required int errors,
+    required int total,
+    required bool isDark,
+  }) {
+    final totalVal = total > 0 ? total : 0;
+    final correctVal = correct.clamp(0, totalVal);
+    final errorsVal = errors.clamp(0, totalVal);
+    final unansweredVal = (totalVal - (correctVal + errorsVal)).clamp(0, totalVal);
+
+    final double correctFlex = totalVal > 0 ? (correctVal / totalVal) : 0.0;
+    final double errorFlex = totalVal > 0 ? (errorsVal / totalVal) : 0.0;
+    final double unansweredFlex = totalVal > 0 ? (unansweredVal / totalVal) : 1.0;
+
+    return Container(
+      height: 14,
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white12 : const Color(0xFFE5E7EB),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isDark ? Colors.white24 : const Color(0xFFCBD5E1),
+          width: 1.2,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(9),
+        child: Row(
+          children: [
+            if (correctVal > 0)
+              Expanded(
+                flex: (correctFlex * 1000).round(),
+                child: Container(
+                  color: const Color(0xFF4CAF50),
+                ),
+              ),
+            if (errorsVal > 0)
+              Expanded(
+                flex: (errorFlex * 1000).round(),
+                child: Container(
+                  color: const Color(0xFFEF4444),
+                ),
+              ),
+            if (unansweredVal > 0 || totalVal == 0)
+              Expanded(
+                flex: totalVal > 0 ? (unansweredFlex * 1000).round() : 1000,
+                child: Container(
+                  color: isDark ? Colors.white10 : const Color(0xFFE5E7EB),
+                ),
+              ),
+          ],
         ),
       ),
     );
