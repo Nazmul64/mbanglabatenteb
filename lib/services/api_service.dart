@@ -1287,6 +1287,7 @@ class ApiService {
     }
 
     final payload = {
+      'qr_data': qrData,
       'token': token,
       'qr_code': qrData,
       'code': token,
@@ -1310,7 +1311,13 @@ class ApiService {
     }
 
     for (final origin in orderedOrigins) {
-      for (final path in ['/qr-unlock', '/api/qr-unlock', '/api/v1/qr-unlock']) {
+      for (final path in [
+        '/api/v1/qr-verification/verify',
+        '/qr-verification/verify',
+        '/qr-unlock',
+        '/api/qr-unlock',
+        '/api/v1/qr-unlock',
+      ]) {
         try {
           final uri = Uri.parse('$origin$path');
           debugPrint('🔓 Trying QR unlock: $uri');
