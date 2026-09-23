@@ -811,8 +811,8 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
                   ],
                 ),
               ],
-              // Study Note Box if available
-              if (quiz.studyNotes.trim().isNotEmpty) ...[
+              // Study Note Box only on dedicated Noted MCQs screen mode
+              if (widget.mode == McqScreenMode.noted && quiz.studyNotes.trim().isNotEmpty) ...[
                 Container(
                   margin: const EdgeInsets.only(bottom: 12),
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
