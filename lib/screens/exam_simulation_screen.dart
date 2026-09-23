@@ -186,8 +186,9 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
       // Fetch live random questions combining Argomenti & Cartelli
       final apiData = await ApiService.generateSchedaEsame();
       if (apiData.isNotEmpty) {
-        for (int index = 0; index < apiData.length; index++) {
-          final q = apiData[index];
+        final dataToUse = apiData.length > 30 ? (List<dynamic>.from(apiData)..shuffle()).take(30).toList() : apiData;
+        for (int index = 0; index < dataToUse.length; index++) {
+          final q = dataToUse[index];
           final statement = (q['italian'] ?? q['domanda'] ?? q['question'] ?? q['text'] ?? '').toString();
           if (statement.trim().isEmpty) continue;
 

@@ -313,28 +313,40 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
 
       if (rawQuestions.isNotEmpty && mounted) {
         final apiQuestions = rawQuestions.map((q) => q is McqQuestion ? q : McqQuestion.fromJson(q)).toList();
-        setState(() {
-          _quizzes = List.generate(apiQuestions.length, (index) {
-            final q = apiQuestions[index];
-            return PatenteQuizItem(
-              rawId: q.id,
-              id: '${index + 1}',
-              italian: q.italian,
-              bangla: q.bangla,
-              isVero: q.isVero,
-              image: q.image,
-              imagePosition: q.imagePosition ?? pos,
-              audioUrl: q.audio,
-              vocabulary: q.vocabulary,
-              audioNote: q.isVero
-                  ? 'এটি সত্য (Vero)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি সঠিক।'
-                  : 'এটি মিথ্যা (Falso)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি ভুল।',
-              giustoCount: 0,
-              sbagliatoCount: 0,
-            );
+        final List<PatenteQuizItem> items = [];
+        for (int index = 0; index < apiQuestions.length; index++) {
+          final q = apiQuestions[index];
+          final stats = await BookmarkManager.getQuestionStats(q.italian);
+          final gCount = q.giustoCount > 0 ? q.giustoCount : (stats['giusto'] as int? ?? 0);
+          final sCount = q.sbagliatoCount > 0 ? q.sbagliatoCount : (stats['sbagliato'] as int? ?? 0);
+          final isSaved = q.isSaved || (stats['saved'] as bool? ?? false);
+          final userNote = (q.userNote != null && q.userNote!.isNotEmpty) ? q.userNote! : (stats['note'] as String? ?? '');
+
+          items.add(PatenteQuizItem(
+            rawId: q.id,
+            id: '${index + 1}',
+            italian: q.italian,
+            bangla: q.bangla,
+            isVero: q.isVero,
+            image: q.image,
+            imagePosition: q.imagePosition ?? pos,
+            audioUrl: q.audio,
+            vocabulary: q.vocabulary,
+            audioNote: q.isVero
+                ? 'এটি সত্য (Vero)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি সঠিক।'
+                : 'এটি মিথ্যা (Falso)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি ভুল।',
+            giustoCount: gCount,
+            sbagliatoCount: sCount,
+            isSaved: isSaved,
+            studyNotes: userNote,
+          ));
+        }
+
+        if (mounted) {
+          setState(() {
+            _quizzes = items;
           });
-        });
-        _syncSavedStatus();
+        }
       }
     }
   }
@@ -380,42 +392,16 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
       });
 
       if (isInitial && widget.questions != null && widget.questions!.isNotEmpty) {
-        setState(() {
-          _pageImage = widget.initialPageImage ?? widget.questions!.first.image;
-          _pageImagePosition = widget.initialPageImagePosition ?? widget.questions!.first.imagePosition;
-          _quizzes = List.generate(widget.questions!.length, (index) {
-            final q = widget.questions![index];
-            return PatenteQuizItem(
-              rawId: q.id,
-              id: '${index + 1}',
-              italian: q.italian,
-              bangla: q.bangla,
-              isVero: q.isVero,
-              image: q.image,
-              imagePosition: q.imagePosition,
-              audioUrl: q.audio,
-              vocabulary: q.vocabulary,
-              audioNote: q.isVero
-                  ? 'এটি সত্য (Vero)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি সঠিক।'
-                  : 'এটি মিথ্যা (Falso)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি ভুল।',
-              giustoCount: 0,
-              sbagliatoCount: 0,
-            );
-          });
-        });
-        _syncSavedStatus();
-        return;
-      }
-
-      await _loadQuizzesForCurrentPage(apiPages);
-      return;
-    }
-
-    if (widget.questions != null && widget.questions!.isNotEmpty) {
-      setState(() {
-        _quizzes = List.generate(widget.questions!.length, (index) {
+        final List<PatenteQuizItem> items = [];
+        for (int index = 0; index < widget.questions!.length; index++) {
           final q = widget.questions![index];
-          return PatenteQuizItem(
+          final stats = await BookmarkManager.getQuestionStats(q.italian);
+          final gCount = q.giustoCount > 0 ? q.giustoCount : (stats['giusto'] as int? ?? 0);
+          final sCount = q.sbagliatoCount > 0 ? q.sbagliatoCount : (stats['sbagliato'] as int? ?? 0);
+          final isSaved = q.isSaved || (stats['saved'] as bool? ?? false);
+          final userNote = (q.userNote != null && q.userNote!.isNotEmpty) ? q.userNote! : (stats['note'] as String? ?? '');
+
+          items.add(PatenteQuizItem(
             rawId: q.id,
             id: '${index + 1}',
             italian: q.italian,
@@ -428,21 +414,76 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
             audioNote: q.isVero
                 ? 'এটি সত্য (Vero)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি সঠিক।'
                 : 'এটি মিথ্যা (Falso)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি ভুল।',
-            giustoCount: 0,
-            sbagliatoCount: 0,
-          );
+            giustoCount: gCount,
+            sbagliatoCount: sCount,
+            isSaved: isSaved,
+            studyNotes: userNote,
+          ));
+        }
+
+        if (mounted) {
+          setState(() {
+            _pageImage = widget.initialPageImage ?? widget.questions!.first.image;
+            _pageImagePosition = widget.initialPageImagePosition ?? widget.questions!.first.imagePosition;
+            _quizzes = items;
+          });
+        }
+        return;
+      }
+
+      await _loadQuizzesForCurrentPage(apiPages);
+      return;
+    }
+
+    if (widget.questions != null && widget.questions!.isNotEmpty) {
+      final List<PatenteQuizItem> items = [];
+      for (int index = 0; index < widget.questions!.length; index++) {
+        final q = widget.questions![index];
+        final stats = await BookmarkManager.getQuestionStats(q.italian);
+        final gCount = q.giustoCount > 0 ? q.giustoCount : (stats['giusto'] as int? ?? 0);
+        final sCount = q.sbagliatoCount > 0 ? q.sbagliatoCount : (stats['sbagliato'] as int? ?? 0);
+        final isSaved = q.isSaved || (stats['saved'] as bool? ?? false);
+        final userNote = (q.userNote != null && q.userNote!.isNotEmpty) ? q.userNote! : (stats['note'] as String? ?? '');
+
+        items.add(PatenteQuizItem(
+          rawId: q.id,
+          id: '${index + 1}',
+          italian: q.italian,
+          bangla: q.bangla,
+          isVero: q.isVero,
+          image: q.image,
+          imagePosition: q.imagePosition,
+          audioUrl: q.audio,
+          vocabulary: q.vocabulary,
+          audioNote: q.isVero
+              ? 'এটি সত্য (Vero)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি সঠিক।'
+              : 'এটি মিথ্যা (Falso)। কারণ ট্রাফিক নিয়ম অনুযায়ী এই বিবরণটি ভুল।',
+          giustoCount: gCount,
+          sbagliatoCount: sCount,
+          isSaved: isSaved,
+          studyNotes: userNote,
+        ));
+      }
+
+      if (mounted) {
+        setState(() {
+          _quizzes = items;
         });
-      });
-      _syncSavedStatus();
+      }
     }
   }
 
   Future<void> _syncSavedStatus() async {
     for (var quiz in _quizzes) {
-      final saved = await BookmarkManager.isSaved(quiz.italian);
+      final stats = await BookmarkManager.getQuestionStats(quiz.italian);
       if (mounted) {
         setState(() {
-          quiz.isSaved = saved;
+          quiz.isSaved = stats['saved'] as bool? ?? false;
+          quiz.giustoCount = stats['giusto'] as int? ?? quiz.giustoCount;
+          quiz.sbagliatoCount = stats['sbagliato'] as int? ?? quiz.sbagliatoCount;
+          if ((stats['note'] as String?)?.isNotEmpty == true) {
+            quiz.studyNotes = stats['note'] as String;
+          }
         });
       }
     }
@@ -811,7 +852,7 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
               );
             }).toList();
 
-            Navigator.push(
+            await Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (context) => ExamSimulationScreen(
@@ -820,6 +861,9 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
                 ),
               ),
             );
+            if (mounted) {
+              await _syncSavedStatus();
+            }
           },
           style: ElevatedButton.styleFrom(
             backgroundColor: const Color(0xFF22C55E),

@@ -618,4 +618,78 @@ class BookmarkManager {
 
     return localWrong;
   }
+
+  /// Retrieve historical stats (Giusto count, Sbagliato count, userNote, isSaved) for a specific question
+  static Future<Map<String, dynamic>> getQuestionStats(String italianText) async {
+    final targetKey = _cleanKey(italianText);
+    if (targetKey.isEmpty) {
+      return {'giusto': 0, 'sbagliato': 0, 'has_answered': false, 'note': null, 'saved': false};
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    int giusto = 0;
+    int sbagliato = 0;
+    String? note;
+    bool saved = false;
+
+    // 1. Check correct list
+    final List<String> correctList = prefs.getStringList(_correctKey) ?? [];
+    for (var item in correctList) {
+      try {
+        final map = json.decode(item);
+        if (_cleanKey(map['italian']?.toString() ?? '') == targetKey) {
+          final g = map['giusto_count'] ?? map['giustoCount'] ?? map['correct_count'];
+          giusto = g is int ? g : (int.tryParse('$g') ?? 1);
+          if (giusto == 0) giusto = 1;
+          break;
+        }
+      } catch (_) {}
+    }
+
+    // 2. Check wrong list
+    final List<String> wrongList = prefs.getStringList(_wrongKey) ?? [];
+    for (var item in wrongList) {
+      try {
+        final map = json.decode(item);
+        if (_cleanKey(map['italian']?.toString() ?? '') == targetKey) {
+          final s = map['sbagliato_count'] ?? map['sbagliatoCount'] ?? map['wrong_count'];
+          sbagliato = s is int ? s : (int.tryParse('$s') ?? 1);
+          if (sbagliato == 0) sbagliato = 1;
+          break;
+        }
+      } catch (_) {}
+    }
+
+    // 3. Check notes list
+    final List<String> notesList = prefs.getStringList(_notedKey) ?? [];
+    for (var item in notesList) {
+      try {
+        final map = json.decode(item);
+        if (_cleanKey(map['italian']?.toString() ?? '') == targetKey) {
+          note = (map['user_note'] ?? map['userNote'] ?? map['note'] ?? map['study_notes'])?.toString();
+          break;
+        }
+      } catch (_) {}
+    }
+
+    // 4. Check saved list
+    final List<String> savedList = prefs.getStringList(_key) ?? [];
+    for (var item in savedList) {
+      try {
+        final map = json.decode(item);
+        if (_cleanKey(map['italian']?.toString() ?? '') == targetKey) {
+          saved = true;
+          break;
+        }
+      } catch (_) {}
+    }
+
+    return {
+      'giusto': giusto,
+      'sbagliato': sbagliato,
+      'has_answered': giusto > 0 || sbagliato > 0,
+      'note': note,
+      'saved': saved,
+    };
+  }
 }

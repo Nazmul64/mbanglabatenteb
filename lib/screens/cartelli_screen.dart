@@ -256,7 +256,11 @@ class _CartelliScreenState extends State<CartelliScreen> {
           vocabulary: q['vocabulary'] ?? q['vocabulary_underlines'],
         );
 
-        quizItem.isSaved = await BookmarkManager.isSaved(quizItem.italian);
+        final stats = await BookmarkManager.getQuestionStats(quizItem.italian);
+        quizItem.isSaved = stats['saved'] as bool? ?? false;
+        quizItem.giustoCount = stats['giusto'] as int? ?? (q['correct_count'] is int ? q['correct_count'] : int.tryParse('${q['correct_count']}') ?? 0);
+        quizItem.sbagliatoCount = stats['sbagliato'] as int? ?? (q['wrong_count'] is int ? q['wrong_count'] : int.tryParse('${q['wrong_count']}') ?? 0);
+        quizItem.studyNotes = (stats['note'] as String?) ?? '';
         loadedQuizzes.add(quizItem);
       }
 
@@ -423,7 +427,7 @@ class _CartelliScreenState extends State<CartelliScreen> {
       );
     }).toList();
 
-    Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => ExamSimulationScreen(
@@ -432,6 +436,22 @@ class _CartelliScreenState extends State<CartelliScreen> {
         ),
       ),
     );
+
+    if (mounted) {
+      for (var quiz in _quizzes) {
+        final stats = await BookmarkManager.getQuestionStats(quiz.italian);
+        if (mounted) {
+          setState(() {
+            quiz.isSaved = stats['saved'] as bool? ?? false;
+            quiz.giustoCount = stats['giusto'] as int? ?? quiz.giustoCount;
+            quiz.sbagliatoCount = stats['sbagliato'] as int? ?? quiz.sbagliatoCount;
+            if ((stats['note'] as String?)?.isNotEmpty == true) {
+              quiz.studyNotes = stats['note'] as String;
+            }
+          });
+        }
+      }
+    }
   }
 
   @override
