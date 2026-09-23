@@ -830,32 +830,34 @@ class _CartelliScreenState extends State<CartelliScreen> {
               ),
               const SizedBox(height: 10),
 
-              // Main Question Content Row: Small image on Left, Italian Text on Right
+              // Main Question Content Row: Fixed 100px Left Image Slot + Right Text Column
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (imgUrl.isNotEmpty) ...[
-                    GestureDetector(
-                      onTap: () => ImageZoomDialog.show(context, imgUrl),
-                      child: Container(
-                        constraints: const BoxConstraints(
-                          maxWidth: 95,
-                          maxHeight: 90,
-                          minWidth: 70,
-                        ),
-                        alignment: Alignment.center,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.network(
-                            imgUrl,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) => const Icon(Icons.image_rounded, size: 30, color: Colors.grey),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                  ],
+                  // 1. FIXED 100px LEFT SLOT: Renders image if available, else remains BLANK/EMPTY!
+                  Container(
+                    width: 100,
+                    height: 100,
+                    alignment: Alignment.topCenter,
+                    child: imgUrl.isNotEmpty
+                        ? GestureDetector(
+                            onTap: () => ImageZoomDialog.show(context, imgUrl),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.network(
+                                imgUrl,
+                                width: 100,
+                                height: 100,
+                                fit: BoxFit.contain,
+                                errorBuilder: (context, error, stackTrace) => const SizedBox(width: 100, height: 100),
+                              ),
+                            ),
+                          )
+                        : const SizedBox(width: 100, height: 100), // Reserved blank empty slot!
+                  ),
+                  const SizedBox(width: 12),
+
+                  // 2. RIGHT TEXT COLUMN
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

@@ -1530,56 +1530,51 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                     ),
                     child: SingleChildScrollView(
                       physics: const BouncingScrollPhysics(),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (currentQuestion.image != null &&
-                              currentQuestion.image!.trim().isNotEmpty &&
-                              currentQuestion.image!.toLowerCase() != 'null' &&
-                              currentQuestion.image!.toLowerCase() != 'undefined' &&
-                              currentQuestion.image!.toLowerCase() != 'none' &&
-                              !currentQuestion.image!.contains('/uploads/vocabulary/') &&
-                              !currentQuestion.image!.contains('vocab_') &&
-                              !currentQuestion.image!.contains('/data/user/') &&
-                              !currentQuestion.image!.contains('/data/data/') &&
-                              !currentQuestion.image!.contains('/storage/emulated/') &&
-                              !currentQuestion.image!.contains('scaled_IMG') &&
-                              !currentQuestion.image!.toLowerCase().contains('placeholder') &&
-                              !currentQuestion.image!.contains('default_image')) ...[
-                            GestureDetector(
-                              onTap: () => ImageZoomDialog.show(context, currentQuestion.image!),
-                              child: Container(
-                                height: 140,
-                                width: double.infinity,
-                                padding: const EdgeInsets.all(6),
-                                margin: const EdgeInsets.only(bottom: 12),
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: isDark ? Colors.white.withOpacity(0.04) : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                child: Image.network(
-                                  ApiService.formatImageUrl(currentQuestion.image!),
-                                  fit: BoxFit.contain,
-                                  loadingBuilder: (context, child, loadingProgress) {
-                                    if (loadingProgress == null) return child;
-                                    return const Center(
-                                      child: SizedBox(
-                                        width: 24,
-                                        height: 24,
-                                        child: CircularProgressIndicator(strokeWidth: 2),
+                          // 1. FIXED 100px LEFT SLOT: Renders image if available, else remains BLANK/EMPTY!
+                          Container(
+                            width: 100,
+                            height: 100,
+                            alignment: Alignment.topCenter,
+                            child: (currentQuestion.image != null &&
+                                    currentQuestion.image!.trim().isNotEmpty &&
+                                    currentQuestion.image!.toLowerCase() != 'null' &&
+                                    currentQuestion.image!.toLowerCase() != 'undefined' &&
+                                    currentQuestion.image!.toLowerCase() != 'none' &&
+                                    !currentQuestion.image!.contains('/uploads/vocabulary/') &&
+                                    !currentQuestion.image!.contains('vocab_') &&
+                                    !currentQuestion.image!.contains('/data/user/') &&
+                                    !currentQuestion.image!.contains('/data/data/') &&
+                                    !currentQuestion.image!.contains('/storage/emulated/') &&
+                                    !currentQuestion.image!.contains('scaled_IMG') &&
+                                    !currentQuestion.image!.toLowerCase().contains('placeholder') &&
+                                    !currentQuestion.image!.contains('default_image'))
+                                ? GestureDetector(
+                                    onTap: () => ImageZoomDialog.show(context, currentQuestion.image!),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.network(
+                                        ApiService.formatImageUrl(currentQuestion.image!),
+                                        width: 100,
+                                        height: 100,
+                                        fit: BoxFit.contain,
+                                        errorBuilder: (ctx, err, stack) => const SizedBox(width: 100, height: 100),
                                       ),
-                                    );
-                                  },
-                                  errorBuilder: (ctx, err, stack) => const SizedBox.shrink(),
-                                ),
+                                    ),
+                                  )
+                                : const SizedBox(width: 100, height: 100), // Reserved blank empty slot!
+                          ),
+                          const SizedBox(width: 12),
+
+                          // 2. RIGHT TEXT COLUMN: Text strictly stays on the right
+                          Expanded(
+                            child: RichText(
+                              textAlign: TextAlign.start,
+                              text: TextSpan(
+                                children: _buildUnderlinedStatement(currentQuestion, isDark),
                               ),
-                            ),
-                          ],
-                          RichText(
-                            textAlign: TextAlign.center,
-                            text: TextSpan(
-                              children: _buildUnderlinedStatement(currentQuestion, isDark),
                             ),
                           ),
                         ],

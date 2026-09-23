@@ -518,30 +518,31 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
             ),
             const SizedBox(height: 6),
 
-            // Middle Section: Left Image (if present) + Right Italian Statement
+            // Middle Section: Fixed 100px Left Image Slot + Right Text Column
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (showImageWidget) ...[
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      width: 78,
-                      height: 78,
-                      decoration: BoxDecoration(
-                        color: isDark ? Colors.white10 : Colors.grey.shade100,
-                        border: Border.all(color: isDark ? Colors.white12 : Colors.grey.shade300),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Image.network(
-                        formattedImg,
-                        fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                ],
+                // 1. FIXED 100px LEFT SLOT: Renders image if available, else remains BLANK/EMPTY!
+                Container(
+                  width: 100,
+                  height: 100,
+                  alignment: Alignment.topCenter,
+                  child: showImageWidget
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            formattedImg,
+                            width: 100,
+                            height: 100,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) => const SizedBox(width: 100, height: 100),
+                          ),
+                        )
+                      : const SizedBox(width: 100, height: 100), // Reserved blank empty slot!
+                ),
+                const SizedBox(width: 12),
+
+                // 2. RIGHT TEXT COLUMN
                 Expanded(
                   child: RichText(
                     text: TextSpan(
