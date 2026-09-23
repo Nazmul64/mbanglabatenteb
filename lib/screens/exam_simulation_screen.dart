@@ -141,8 +141,12 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
 
     if (widget.customQuestions != null && widget.customQuestions!.isNotEmpty) {
       List<ExamQuestion> customLoaded = [];
-      for (int index = 0; index < widget.customQuestions!.length; index++) {
-        final q = widget.customQuestions![index];
+      final questionsList = widget.customQuestions!.length > 30
+          ? (List<McqQuestion>.from(widget.customQuestions!)..shuffle()).take(30).toList()
+          : widget.customQuestions!;
+
+      for (int index = 0; index < questionsList.length; index++) {
+        final q = questionsList[index];
         final statement = q.italian;
         final Map<String, String> help = {};
         final words = statement.toLowerCase().split(RegExp(r"[^a-zA-Z']"));
@@ -402,14 +406,14 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
   void _showExamResultModal(List<ExamResultItem> results, int giustoCount, int sbagliatoCount, int nonDateCount) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final total = results.length;
-    final isPassed = sbagliatoCount <= 3;
+    final total = results.length > 0 ? results.length : 30;
+    final isPassed = sbagliatoCount <= 3 && nonDateCount == 0;
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
         backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: Padding(
@@ -417,170 +421,70 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // 1. Emoji at Top
+              // 1. Title: Risultato
               Text(
-                isPassed ? '😊' : '😔',
-                style: const TextStyle(fontSize: 48),
-              ),
-              const SizedBox(height: 12),
-
-              // 2. Modal Title
-              Text(
-                'Risultato del Test',
+                'Risultato',
                 style: TextStyle(
-                  fontSize: 20,
+                  fontSize: 24,
                   fontWeight: FontWeight.w900,
-                  color: isDark ? Colors.white : const Color(0xFF0F172A),
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // 3. Giusto Card
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF14532D).withOpacity(0.3) : const Color(0xFFF0FDF4),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: isDark ? const Color(0xFF166534) : const Color(0xFFDCFCE7),
-                    width: 1,
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Giusto',
-                      style: TextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF16A34A),
-                      ),
-                    ),
-                    Text(
-                      '$giustoCount',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFF16A34A),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-
-              // 4. Sbagliato Card
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF7F1D1D).withOpacity(0.3) : const Color(0xFFFEF2F2),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: isDark ? const Color(0xFF991B1B) : const Color(0xFFFEE2E2),
-                    width: 1,
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Sbagliato',
-                      style: TextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFFDC2626),
-                      ),
-                    ),
-                    Text(
-                      '$sbagliatoCount',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFFDC2626),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-
-              // 5. Non date Card
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF78350F).withOpacity(0.3) : const Color(0xFFFFFBEB),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: isDark ? const Color(0xFF92400E) : const Color(0xFFFEF3C7),
-                    width: 1,
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Non date',
-                      style: TextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFFD97706),
-                      ),
-                    ),
-                    Text(
-                      '$nonDateCount',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFFD97706),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-
-              // 6. Multi-color Progress Segmented Bar
-              Container(
-                height: 7,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.white12 : Colors.grey.shade200,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: Row(
-                    children: [
-                      if (giustoCount > 0)
-                        Expanded(
-                          flex: giustoCount,
-                          child: Container(color: const Color(0xFF22C55E)),
-                        ),
-                      if (sbagliatoCount > 0)
-                        Expanded(
-                          flex: sbagliatoCount,
-                          child: Container(color: const Color(0xFFEF4444)),
-                        ),
-                      if (nonDateCount > 0)
-                        Expanded(
-                          flex: nonDateCount,
-                          child: Container(color: const Color(0xFFF59E0B)),
-                        ),
-                      if (total == 0)
-                        Expanded(
-                          child: Container(color: Colors.grey.shade300),
-                        ),
-                    ],
-                  ),
+                  color: isDark ? const Color(0xFF38BDF8) : const Color(0xFF3B82F6),
+                  letterSpacing: 0.5,
                 ),
               ),
               const SizedBox(height: 18),
 
-              // 7. Mostra Risultato (Green Button)
+              // 2. Large Circular Face Icon (Red for fail, Green for pass)
+              Container(
+                width: 86,
+                height: 86,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isPassed ? const Color(0xFF22C55E) : const Color(0xFFEF4444),
+                    width: 5,
+                  ),
+                ),
+                child: Center(
+                  child: Icon(
+                    isPassed ? Icons.sentiment_very_satisfied_rounded : Icons.sentiment_very_dissatisfied_rounded,
+                    size: 56,
+                    color: isPassed ? const Color(0xFF22C55E) : const Color(0xFFEF4444),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 22),
+
+              // 3. Giusto Capsule Progress Bar (Green)
+              _buildCapsuleResultBar(
+                label: 'Giusto',
+                count: giustoCount,
+                total: total,
+                fillColor: const Color(0xFF4CAF50),
+                isDark: isDark,
+              ),
+              const SizedBox(height: 12),
+
+              // 4. Sbagliato Capsule Progress Bar (Red)
+              _buildCapsuleResultBar(
+                label: 'Sbagliato',
+                count: sbagliatoCount,
+                total: total,
+                fillColor: const Color(0xFFEF5350),
+                isDark: isDark,
+              ),
+              const SizedBox(height: 12),
+
+              // 5. Risposte non date Capsule Progress Bar (Orange)
+              _buildCapsuleResultBar(
+                label: 'Risposte non date',
+                count: nonDateCount,
+                total: total,
+                fillColor: const Color(0xFFFFA000),
+                isDark: isDark,
+              ),
+              const SizedBox(height: 22),
+
+              // 6. Mostra Risultato Button (Capsule Grey/Light Theme)
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -597,9 +501,9 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                     );
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF22C55E),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    backgroundColor: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                    foregroundColor: isDark ? Colors.white : const Color(0xFF0F172A),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                     padding: const EdgeInsets.symmetric(vertical: 13),
                     elevation: 0,
                   ),
@@ -611,7 +515,7 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
               ),
               const SizedBox(height: 10),
 
-              // 8. Ricomincia & Home Row
+              // 7. Ricomincia & Home Row
               Row(
                 children: [
                   Expanded(
@@ -623,8 +527,8 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF3B82F6),
                         foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        padding: const EdgeInsets.symmetric(vertical: 11),
                         elevation: 0,
                       ),
                       child: const Text(
@@ -641,11 +545,11 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                         Navigator.pop(context);
                       },
                       style: OutlinedButton.styleFrom(
-                        backgroundColor: isDark ? const Color(0xFF334155) : const Color(0xFFF8FAFC),
+                        backgroundColor: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
                         foregroundColor: isDark ? Colors.white70 : const Color(0xFF475569),
-                        side: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E8F0)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        side: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFCBD5E1)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        padding: const EdgeInsets.symmetric(vertical: 11),
                       ),
                       child: const Text(
                         'Home',
@@ -660,6 +564,58 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildCapsuleResultBar({
+    required String label,
+    required int count,
+    required int total,
+    required Color fillColor,
+    required bool isDark,
+  }) {
+    final double ratio = total > 0 ? (count / total).clamp(0.0, 1.0) : 0.0;
+
+    return Container(
+      height: 38,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white10 : const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isDark ? Colors.white24 : const Color(0xFFCBD5E1),
+          width: 1.2,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(19),
+        child: Stack(
+          children: [
+            if (count > 0)
+              FractionallySizedBox(
+                widthFactor: ratio < 0.1 ? 0.1 : ratio,
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: fillColor,
+                    borderRadius: BorderRadius.circular(19),
+                  ),
+                ),
+              ),
+            Center(
+              child: Text(
+                '$label:$count',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: isDark ? Colors.white : const Color(0xFF1E293B),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
   }
 
   void _restartExam() {

@@ -62,7 +62,7 @@ class PatenteQuizItem {
     this.audioProgress = 0.0,
     this.playbackSpeed = 1.0,
     this.studyNotes = '',
-    this.giustoCount = 1,
+    this.giustoCount = 0,
     this.sbagliatoCount = 0,
     this.showBangla = false,
   });
