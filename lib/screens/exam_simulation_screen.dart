@@ -616,7 +616,6 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
       ),
     );
   }
-  }
 
   void _restartExam() {
     _examTimer?.cancel();
