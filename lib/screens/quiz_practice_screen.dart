@@ -319,7 +319,7 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
           final stats = await BookmarkManager.getQuestionStats(q.italian);
           final gCount = q.giustoCount > 0 ? q.giustoCount : (stats['giusto'] as int? ?? 0);
           final sCount = q.sbagliatoCount > 0 ? q.sbagliatoCount : (stats['sbagliato'] as int? ?? 0);
-          final isSaved = q.isSaved || (stats['saved'] as bool? ?? false);
+          final isSaved = stats['saved'] as bool? ?? false;
           final userNote = (q.userNote != null && q.userNote!.isNotEmpty) ? q.userNote! : (stats['note'] as String? ?? '');
 
           items.add(PatenteQuizItem(
@@ -398,7 +398,7 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
           final stats = await BookmarkManager.getQuestionStats(q.italian);
           final gCount = q.giustoCount > 0 ? q.giustoCount : (stats['giusto'] as int? ?? 0);
           final sCount = q.sbagliatoCount > 0 ? q.sbagliatoCount : (stats['sbagliato'] as int? ?? 0);
-          final isSaved = q.isSaved || (stats['saved'] as bool? ?? false);
+          final isSaved = stats['saved'] as bool? ?? false;
           final userNote = (q.userNote != null && q.userNote!.isNotEmpty) ? q.userNote! : (stats['note'] as String? ?? '');
 
           items.add(PatenteQuizItem(
@@ -442,7 +442,7 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
         final stats = await BookmarkManager.getQuestionStats(q.italian);
         final gCount = q.giustoCount > 0 ? q.giustoCount : (stats['giusto'] as int? ?? 0);
         final sCount = q.sbagliatoCount > 0 ? q.sbagliatoCount : (stats['sbagliato'] as int? ?? 0);
-        final isSaved = q.isSaved || (stats['saved'] as bool? ?? false);
+        final isSaved = stats['saved'] as bool? ?? false;
         final userNote = (q.userNote != null && q.userNote!.isNotEmpty) ? q.userNote! : (stats['note'] as String? ?? '');
 
         items.add(PatenteQuizItem(
@@ -826,7 +826,7 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
       floatingActionButton: Container(
         margin: const EdgeInsets.only(bottom: 8, right: 8),
         child: ElevatedButton(
-          onPressed: () {
+          onPressed: () async {
             final selectedList = _quizzes.where((q) => q.isSelected).toList();
             final targetQuizzes = selectedList.isNotEmpty ? selectedList : _quizzes;
 

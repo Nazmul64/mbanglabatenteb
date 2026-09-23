@@ -401,7 +401,7 @@ class _CartelliScreenState extends State<CartelliScreen> {
     }
   }
 
-  void _startSelectedQuizPractice() {
+  Future<void> _startSelectedQuizPractice() async {
     final selectedQuizzes = _quizzes.where((q) => q.isSelected).toList();
     final targetQuizzes = selectedQuizzes.isNotEmpty ? selectedQuizzes : _quizzes;
 
