@@ -19,10 +19,13 @@ import 'screens/translation_screen.dart';
 import 'screens/qr_scanner_dialog.dart';
 import 'screens/app_navigation_drawer.dart';
 import 'services/api_service.dart';
+import 'models/bookmark_manager.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  ApiService.initServerConfig(); // Run in background without blocking initial app frame render
+  ApiService.initServerConfig().then((_) {
+    BookmarkManager.syncAllWithServer();
+  }).catchError((_) {});
   runApp(const MyApp());
 }
 

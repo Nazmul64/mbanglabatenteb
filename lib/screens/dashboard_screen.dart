@@ -5,6 +5,7 @@ import 'package:lottie/lottie.dart';
 import '../services/api_service.dart';
 import '../models/slider_model.dart';
 import '../models/home_card_model.dart';
+import '../models/bookmark_manager.dart';
 import 'triangle_pattern_painter.dart';
 import 'card_illustrations.dart';
 
@@ -85,6 +86,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     ApiService.fetchChapters().catchError((_) => <dynamic>[]);
     ApiService.fetchCartelliChapters().catchError((_) => <dynamic>[]);
     ApiService.generateSchedaEsame().catchError((_) => <dynamic>[]);
+    BookmarkManager.syncAllWithServer().catchError((_) {});
   }
 
   VoidCallback _getCallbackForScreenKey(String screenKey) {

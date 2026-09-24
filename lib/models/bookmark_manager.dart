@@ -34,10 +34,29 @@ class BookmarkManager {
   }
 
   // ══════════════════════════════════════════════════════
+  // 📌 0. COMPLETE TWO-WAY BACKGROUND SYNC
+  // ══════════════════════════════════════════════════════
+
+  /// Synchronize all Bookmarks, Notes, Correct MCQs, and Wrong MCQs with the backend
+  static Future<void> syncAllWithServer() async {
+    try {
+      await Future.wait([
+        syncWithServer(),
+        getNotedQuestions(),
+        getCorrectQuestions(),
+        getWrongQuestions(),
+      ]);
+      debugPrint('✅ BookmarkManager: Complete cross-platform sync completed successfully.');
+    } catch (e) {
+      debugPrint('⚠️ BookmarkManager: syncAllWithServer note: $e');
+    }
+  }
+
+  // ══════════════════════════════════════════════════════
   // 📌 1. BOOKMARKS / SAVED MCQS (Local + Server Sync)
   // ══════════════════════════════════════════════════════
 
-  // Sync local bookmarks with backend API database
+  /// Sync local bookmarks with backend API database
   static Future<List<McqQuestion>?> syncWithServer() async {
     try {
       final serverItems = await ApiService.fetchSavedMcqs();
@@ -54,6 +73,9 @@ class BookmarkManager {
                     : jsonItem));
         if (raw is Map) {
           final map = Map<String, dynamic>.from(raw);
+          if (jsonItem is Map && jsonItem['question_id'] != null && map['id'] == null) {
+            map['id'] = jsonItem['question_id'];
+          }
           final parsed = McqQuestion.fromJson(map);
           serverQuestions.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
         }
@@ -73,7 +95,6 @@ class BookmarkManager {
       }
 
       // Combine unique questions by clean Italian text
-      // Local questions first, then server questions override with fresh data (images, voice, bangla)
       final Map<String, McqQuestion> uniqueMap = {};
       for (var q in localQuestions) {
         if (q.italian.trim().isNotEmpty) {
@@ -88,6 +109,7 @@ class BookmarkManager {
           final cleanExistingImg = existing != null ? cleanQuestionImage(existing.image) : null;
           if (existing != null) {
             uniqueMap[key] = q.copyWith(
+              id: q.id != 0 ? q.id : existing.id,
               image: cleanServerImg ?? cleanExistingImg,
               audio: (q.audio != null && q.audio!.trim().isNotEmpty) ? q.audio : existing.audio,
               bangla: (q.bangla.trim().isNotEmpty) ? q.bangla : existing.bangla,
@@ -111,13 +133,12 @@ class BookmarkManager {
     }
   }
 
-  // Save a question
+  /// Save a question to bookmarks
   static Future<void> saveQuestion(McqQuestion question, {String? type}) async {
     final prefs = await SharedPreferences.getInstance();
     final List<String> list = prefs.getStringList(_key) ?? [];
     final targetKey = _cleanKey(question.italian);
-    
-    // Check if already saved (by Italian text)
+
     final bool exists = list.any((item) {
       try {
         final map = json.decode(item);
@@ -134,16 +155,19 @@ class BookmarkManager {
 
     // Sync to Laravel API backend database
     try {
-      await ApiService.toggleSavedMcq(question.id, type: type, italian: question.italian);
-    } catch (_) {}
+      final qType = type ?? (question.chapterName.toLowerCase().contains('cartell') ? 'cartelli' : 'argomenti');
+      await ApiService.toggleSavedMcq(question.id, type: qType, italian: question.italian);
+    } catch (e) {
+      debugPrint('Error saving question to server: $e');
+    }
   }
 
-  // Remove a question
+  /// Remove a question from bookmarks
   static Future<void> removeQuestion(String italianText, [dynamic questionId, String? type]) async {
     final prefs = await SharedPreferences.getInstance();
     final List<String> list = prefs.getStringList(_key) ?? [];
     final targetKey = _cleanKey(italianText);
-    
+
     list.removeWhere((item) {
       try {
         final map = json.decode(item);
@@ -157,28 +181,30 @@ class BookmarkManager {
 
     // Sync to Laravel API backend database
     try {
-      await ApiService.toggleSavedMcq(questionId ?? 0, type: type, italian: italianText);
-    } catch (_) {}
+      await ApiService.toggleSavedMcq(questionId ?? 0, type: type ?? 'argomenti', italian: italianText);
+    } catch (e) {
+      debugPrint('Error removing question from server bookmarks: $e');
+    }
   }
 
-  // Toggle bookmark status
-  static Future<bool> toggleBookmark(McqQuestion question) async {
+  /// Toggle bookmark status
+  static Future<bool> toggleBookmark(McqQuestion question, {String? type}) async {
     final saved = await isSaved(question.italian, question.id);
     if (saved) {
-      await removeQuestion(question.italian, question.id);
+      await removeQuestion(question.italian, question.id, type);
       return false;
     } else {
-      await saveQuestion(question);
+      await saveQuestion(question, type: type);
       return true;
     }
   }
 
-  // Check if a question is saved
+  /// Check if a question is saved
   static Future<bool> isSaved(String italianText, [dynamic questionId]) async {
     final prefs = await SharedPreferences.getInstance();
     final List<String> list = prefs.getStringList(_key) ?? [];
     final targetKey = _cleanKey(italianText);
-    
+
     return list.any((item) {
       try {
         final map = json.decode(item);
@@ -189,7 +215,7 @@ class BookmarkManager {
     });
   }
 
-  // Get all saved questions
+  /// Get all saved questions
   static Future<List<McqQuestion>> getSavedQuestions() async {
     final synced = await syncWithServer();
     if (synced != null && synced.isNotEmpty) {
@@ -198,7 +224,7 @@ class BookmarkManager {
 
     final prefs = await SharedPreferences.getInstance();
     final List<String> list = prefs.getStringList(_key) ?? [];
-    
+
     final List<McqQuestion> results = [];
     for (var item in list) {
       try {
@@ -216,18 +242,18 @@ class BookmarkManager {
   // 📝 2. NOTES MANAGEMENT (Strict Isolation per Question)
   // ══════════════════════════════════════════════════════
 
-  /// Save or update a note for a specific question (Strictly isolated by Italian text)
+  /// Save or update a note for a specific question
   static Future<void> saveNote(McqQuestion question, String noteText, {String? type}) async {
     final prefs = await SharedPreferences.getInstance();
     final List<String> list = prefs.getStringList(_notedKey) ?? [];
     final targetKey = _cleanKey(question.italian);
-    
+
     final updatedQ = question.copyWith(
       userNote: noteText.trim(),
       image: cleanQuestionImage(question.image),
     );
 
-    // Remove existing entry for THIS exact question only
+    // Remove existing entry for this exact question only
     list.removeWhere((item) {
       try {
         final map = json.decode(item);
@@ -244,16 +270,19 @@ class BookmarkManager {
 
     // Sync to Server in background
     try {
+      final qType = type ?? (question.chapterName.toLowerCase().contains('cartell') ? 'cartelli' : 'argomenti');
       if (noteText.trim().isNotEmpty) {
         await ApiService.saveNote(
           questionId: question.id,
           note: noteText.trim(),
-          type: type,
+          type: qType,
         );
       } else {
         await ApiService.deleteNote(question.id);
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Error syncing note to server: $e');
+    }
   }
 
   /// Remove a note for a question
@@ -261,7 +290,7 @@ class BookmarkManager {
     final prefs = await SharedPreferences.getInstance();
     final List<String> list = prefs.getStringList(_notedKey) ?? [];
     final targetKey = _cleanKey(italianText);
-    
+
     list.removeWhere((item) {
       try {
         final map = json.decode(item);
@@ -277,10 +306,12 @@ class BookmarkManager {
       if (questionId != null && questionId != 0) {
         await ApiService.deleteNote(questionId);
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Error deleting note from server: $e');
+    }
   }
 
-  /// Get the stored note for a question (Strictly matches only the exact Italian statement)
+  /// Get the stored note for a question
   static Future<String?> getNoteForQuestion(String italianText, [dynamic questionId]) async {
     final prefs = await SharedPreferences.getInstance();
     final List<String> list = prefs.getStringList(_notedKey) ?? [];
@@ -327,7 +358,11 @@ class BookmarkManager {
               ? jsonItem['question']
               : jsonItem;
           if (raw is Map) {
-            final baseQ = McqQuestion.fromJson(Map<String, dynamic>.from(raw));
+            final baseMap = Map<String, dynamic>.from(raw);
+            if (jsonItem is Map && jsonItem['question_id'] != null && baseMap['id'] == null) {
+              baseMap['id'] = jsonItem['question_id'];
+            }
+            final baseQ = McqQuestion.fromJson(baseMap);
             final noteStr = (jsonItem is Map && jsonItem['note_text'] != null)
                 ? jsonItem['note_text'].toString()
                 : ((jsonItem is Map && jsonItem['note'] != null) ? jsonItem['note'].toString() : null);
@@ -351,6 +386,7 @@ class BookmarkManager {
             final cleanExistingImg = existing != null ? cleanQuestionImage(existing.image) : null;
             if (existing != null) {
               uniqueMap[key] = q.copyWith(
+                id: q.id != 0 ? q.id : existing.id,
                 image: cleanServerImg ?? cleanExistingImg,
                 audio: (q.audio != null && q.audio!.trim().isNotEmpty) ? q.audio : existing.audio,
                 bangla: (q.bangla.trim().isNotEmpty) ? q.bangla : existing.bangla,
@@ -381,7 +417,12 @@ class BookmarkManager {
   // ══════════════════════════════════════════════════════
 
   /// Record a single question answer result (Correct or Wrong)
-  static Future<void> recordQuestionResult(McqQuestion question, bool isCorrect, {String? userAnswer}) async {
+  static Future<void> recordQuestionResult(
+    McqQuestion question,
+    bool isCorrect, {
+    String? userAnswer,
+    String? type,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     final targetKey = _cleanKey(question.italian);
     if (targetKey.isEmpty) return;
@@ -392,7 +433,7 @@ class BookmarkManager {
     final List<String> targetList = prefs.getStringList(key) ?? [];
     final List<String> otherList = prefs.getStringList(otherKey) ?? [];
 
-    // 1. Remove from opposing list if moving from wrong -> correct or correct -> wrong
+    // 1. Remove from opposing list
     otherList.removeWhere((item) {
       try {
         final map = json.decode(item);
@@ -429,8 +470,11 @@ class BookmarkManager {
     // 3. Log to API backend database
     try {
       final answer = userAnswer ?? (question.isVero ? (isCorrect ? 'V' : 'F') : (isCorrect ? 'F' : 'V'));
-      await ApiService.logUserMcqResult(question.id, isCorrect, answer);
-    } catch (_) {}
+      final qType = type ?? (question.chapterName.toLowerCase().contains('cartell') ? 'cartelli' : 'argomenti');
+      await ApiService.logUserMcqResult(question.id, isCorrect, answer, type: qType);
+    } catch (e) {
+      debugPrint('Error logging user MCQ result to server: $e');
+    }
   }
 
   /// Record all attempted questions from an exam / test simulation
@@ -462,25 +506,42 @@ class BookmarkManager {
         vocabulary: item.vocabulary,
         userNote: item.userNote,
       );
+
+      final String userAnswerStr = item.userSelectedVero != null
+          ? (item.userSelectedVero! ? 'V' : 'F')
+          : (item.isVero ? (item.isCorrect ? 'V' : 'F') : (item.isCorrect ? 'F' : 'V'));
+
+      final String qType = (item.chapterName.toLowerCase().contains('cartell') ||
+                            (item.image != null && item.image!.toLowerCase().contains('cartell')))
+          ? 'cartelli'
+          : 'argomenti';
+
       await recordQuestionResult(
         mcq,
         item.isCorrect,
-        userAnswer: item.userSelectedVero != null ? (item.userSelectedVero! ? 'V' : 'F') : null,
+        userAnswer: userAnswerStr,
+        type: qType,
       );
 
       loggedAnswers.add({
         'question_id': item.id,
-        'user_answer': item.userSelectedVero,
+        'question_type': qType,
+        'user_answer': userAnswerStr,
         'is_correct': item.isCorrect,
       });
     }
 
-    // Submit complete exam report to /scheda-esame/submit
+    // Submit complete exam & test report to backend for 100% two-way sync
     if (results.isNotEmpty) {
       try {
         final authParams = await ApiService.getUserAuthParams();
-        await ApiService.submitSchedaEsame({
+        final phone = authParams['phone'] ?? authParams['user_phone'];
+        final sessionId = authParams['session_id'];
+
+        final payload = {
           ...authParams,
+          if (phone != null && phone.isNotEmpty) 'phone': phone,
+          if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
           'total_questions': results.length,
           'correct_count': correctCount,
           'wrong_count': wrongCount,
@@ -488,8 +549,13 @@ class BookmarkManager {
           'duration_seconds': timeSpentSeconds ?? 600,
           'time_spent_seconds': timeSpentSeconds ?? 600,
           'answers': loggedAnswers,
-        });
-      } catch (_) {}
+        };
+
+        await ApiService.submitSchedaEsame(payload);
+        await ApiService.submitTestResult(payload);
+      } catch (e) {
+        debugPrint('Error submitting exam results to server: $e');
+      }
     }
   }
 
@@ -522,8 +588,18 @@ class BookmarkManager {
                       ? jsonItem['cartello_question']
                       : jsonItem));
           if (raw is Map) {
-            final parsed = McqQuestion.fromJson(Map<String, dynamic>.from(raw));
-            serverCorrect.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
+            final baseMap = Map<String, dynamic>.from(raw);
+            if (jsonItem is Map && jsonItem['question_id'] != null && baseMap['id'] == null) {
+              baseMap['id'] = jsonItem['question_id'];
+            }
+            final parsed = McqQuestion.fromJson(baseMap);
+            final cCount = (jsonItem is Map && jsonItem['correct_count'] != null)
+                ? (jsonItem['correct_count'] is int ? jsonItem['correct_count'] : int.tryParse('${jsonItem['correct_count']}') ?? 1)
+                : (parsed.giustoCount > 0 ? parsed.giustoCount : 1);
+            serverCorrect.add(parsed.copyWith(
+              image: cleanQuestionImage(parsed.image),
+              giustoCount: cCount,
+            ));
           }
         }
 
@@ -540,7 +616,11 @@ class BookmarkManager {
             final existing = uniqueMap[key];
             final cleanExistingImg = existing != null ? cleanQuestionImage(existing.image) : null;
             final cleanServerImg = cleanQuestionImage(q.image);
-            uniqueMap[key] = q.copyWith(image: cleanServerImg ?? cleanExistingImg);
+            uniqueMap[key] = q.copyWith(
+              id: q.id != 0 ? q.id : (existing?.id ?? 0),
+              image: cleanServerImg ?? cleanExistingImg,
+              giustoCount: (existing != null && existing.giustoCount > q.giustoCount) ? existing.giustoCount : q.giustoCount,
+            );
           }
         }
 
@@ -585,8 +665,18 @@ class BookmarkManager {
                       ? jsonItem['cartello_question']
                       : jsonItem));
           if (raw is Map) {
-            final parsed = McqQuestion.fromJson(Map<String, dynamic>.from(raw));
-            serverWrong.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
+            final baseMap = Map<String, dynamic>.from(raw);
+            if (jsonItem is Map && jsonItem['question_id'] != null && baseMap['id'] == null) {
+              baseMap['id'] = jsonItem['question_id'];
+            }
+            final parsed = McqQuestion.fromJson(baseMap);
+            final wCount = (jsonItem is Map && jsonItem['wrong_count'] != null)
+                ? (jsonItem['wrong_count'] is int ? jsonItem['wrong_count'] : int.tryParse('${jsonItem['wrong_count']}') ?? 1)
+                : (parsed.sbagliatoCount > 0 ? parsed.sbagliatoCount : 1);
+            serverWrong.add(parsed.copyWith(
+              image: cleanQuestionImage(parsed.image),
+              sbagliatoCount: wCount,
+            ));
           }
         }
 
@@ -603,7 +693,11 @@ class BookmarkManager {
             final existing = uniqueMap[key];
             final cleanExistingImg = existing != null ? cleanQuestionImage(existing.image) : null;
             final cleanServerImg = cleanQuestionImage(q.image);
-            uniqueMap[key] = q.copyWith(image: cleanServerImg ?? cleanExistingImg);
+            uniqueMap[key] = q.copyWith(
+              id: q.id != 0 ? q.id : (existing?.id ?? 0),
+              image: cleanServerImg ?? cleanExistingImg,
+              sbagliatoCount: (existing != null && existing.sbagliatoCount > q.sbagliatoCount) ? existing.sbagliatoCount : q.sbagliatoCount,
+            );
           }
         }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
+import '../models/bookmark_manager.dart';
 
 class QRScannerDialog extends StatefulWidget {
   const QRScannerDialog({Key? key}) : super(key: key);
@@ -98,7 +99,10 @@ class _QRScannerDialogState extends State<QRScannerDialog> with SingleTickerProv
       licenseKey: licenseKey,
     );
 
-        final bool isSuccess = (res == true);
+    final bool isSuccess = (res == true);
+    if (isSuccess) {
+      BookmarkManager.syncAllWithServer().catchError((_) {});
+    }
     final String message = isSuccess
         ? 'ওয়েবসাইট সফলভাবে আনলক করা হয়েছে!'
         : 'লাইসেন্স নিষ্ক্রিয় অথবা স্ক্যান ব্যর্থ হয়েছে। অনুগ্রহ করে সাপোর্ট টিমের সাথে যোগাযোগ করুন।';

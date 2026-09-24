@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
+import '../models/bookmark_manager.dart';
 import '../theme.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -126,6 +127,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               await prefs.setString('user_phone', ph);
 
               final sessionId = prefs.getString('app_client_session_id') ?? '';
+              ApiService.setSessionContext(phone: ph, sessionId: sessionId);
               if (fName.isNotEmpty && ph.isNotEmpty) {
                 ApiService.verifyClient(
                   firstName: fName,
@@ -134,6 +136,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   sessionId: sessionId,
                 );
               }
+              BookmarkManager.syncAllWithServer().catchError((_) {});
 
               setState(() {
                 _firstName = fName;

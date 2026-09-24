@@ -18,12 +18,26 @@ class ApiService {
   ];
 
   static String? _resolvedBaseUrl = 'https://mbanglapatenteb.com/api/v1';
+  static String? _authToken;
   static String? _activeSessionId;
   static String? _activeClientPhone;
 
+  static void setAuthToken(String token) {
+    if (token.isNotEmpty) {
+      _authToken = token;
+      SharedPreferences.getInstance().then((p) => p.setString('app_client_token', token)).catchError((_) => false);
+    }
+  }
+
   static void setSessionContext({String? sessionId, String? phone}) {
-    if (sessionId != null && sessionId.isNotEmpty) _activeSessionId = sessionId;
-    if (phone != null && phone.isNotEmpty) _activeClientPhone = phone;
+    if (sessionId != null && sessionId.isNotEmpty) {
+      _activeSessionId = sessionId;
+      SharedPreferences.getInstance().then((p) => p.setString('app_client_session_id', sessionId)).catchError((_) => false);
+    }
+    if (phone != null && phone.isNotEmpty) {
+      _activeClientPhone = phone;
+      SharedPreferences.getInstance().then((p) => p.setString('app_client_phone', phone)).catchError((_) => false);
+    }
   }
 
   /// Flushes in-memory response caches and resets active server resolution
@@ -44,9 +58,12 @@ class ApiService {
       // Immediately restore stored user identity into memory
       final phone = prefs.getString('app_client_phone') ??
           prefs.getString('user_phone') ??
-          prefs.getString('phone');
+          prefs.getString('phone') ??
+          prefs.getString('mobile');
       final sessionId = prefs.getString('app_client_session_id') ??
-          prefs.getString('session_id');
+          prefs.getString('app_session_id') ??
+          prefs.getString('session_id') ??
+          prefs.getString('device_id');
       final token = prefs.getString('app_client_token');
 
       if (phone != null && phone.trim().isNotEmpty) _activeClientPhone = phone.trim();
@@ -79,7 +96,7 @@ class ApiService {
   /// Get the active base URL
   static String get baseUrl => _resolvedBaseUrl ?? candidateBaseUrls.first;
 
-  /// Standard HTTP Headers as specified in API Documentation
+  /// Standard HTTP Headers as specified in API Documentation for 100% cross-platform sync
   static Map<String, String> get defaultHeaders {
     final headers = <String, String>{
       'Accept': 'application/json',
@@ -172,15 +189,28 @@ class ApiService {
 
   /// Helper to perform HTTP GET with dynamic candidate URL resolution & fallback (ultra-fast sub-second caching)
   static Future<http.Response?> _getWithFallback(String endpoint, {Map<String, String>? queryParameters, bool useCache = true}) async {
-    final cacheKey = '$endpoint?${queryParameters?.entries.map((e) => '${e.key}=${e.value}').join('&') ?? ''}';
+    final authParams = await getUserAuthParams();
+    final effectiveParams = queryParameters != null ? Map<String, String>.from(queryParameters) : <String, String>{};
+
+    // Auto-inject phone & session_id into query params if not already provided
+    if (!effectiveParams.containsKey('phone') && authParams.containsKey('phone')) {
+      effectiveParams['phone'] = authParams['phone']!;
+    }
+    if (!effectiveParams.containsKey('session_id') && authParams.containsKey('session_id')) {
+      effectiveParams['session_id'] = authParams['session_id']!;
+    }
+
+    final cacheKey = '$endpoint?${effectiveParams.entries.map((e) => '${e.key}=${e.value}').join('&')}';
     if (useCache && _apiResponseCache.containsKey(cacheKey)) {
       return _apiResponseCache[cacheKey];
     }
 
+    final headers = defaultHeaders;
+
     if (_resolvedBaseUrl != null) {
       try {
-        final uri = Uri.parse('$_resolvedBaseUrl$endpoint').replace(queryParameters: queryParameters);
-        final response = await http.get(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 2500));
+        final uri = Uri.parse('$_resolvedBaseUrl$endpoint').replace(queryParameters: effectiveParams.isNotEmpty ? effectiveParams : null);
+        final response = await http.get(uri, headers: headers).timeout(const Duration(milliseconds: 3500));
         if (response.statusCode == 200) {
           if (useCache) _apiResponseCache[cacheKey] = response;
           return response;
@@ -193,8 +223,8 @@ class ApiService {
     int pending = candidateBaseUrls.length;
 
     for (final base in candidateBaseUrls) {
-      final uri = Uri.parse('$base$endpoint').replace(queryParameters: queryParameters);
-      http.get(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 2500)).then((resp) {
+      final uri = Uri.parse('$base$endpoint').replace(queryParameters: effectiveParams.isNotEmpty ? effectiveParams : null);
+      http.get(uri, headers: headers).timeout(const Duration(milliseconds: 3500)).then((resp) {
         if (resp.statusCode == 200 && !completer.isCompleted) {
           _resolvedBaseUrl = base;
           SharedPreferences.getInstance().then((p) => p.setString('app_cached_base_url', base)).catchError((_) => false);
@@ -215,12 +245,25 @@ class ApiService {
 
   /// Helper to perform HTTP POST with dynamic candidate URL resolution & fallback
   static Future<http.Response?> _postWithFallback(String endpoint, Map<String, dynamic> body) async {
+    final authParams = await getUserAuthParams();
+    final effectiveBody = Map<String, dynamic>.from(body);
+
+    // Auto-inject phone & session_id into body if not already present
+    if (!effectiveBody.containsKey('phone') && authParams.containsKey('phone')) {
+      effectiveBody['phone'] = authParams['phone'];
+    }
+    if (!effectiveBody.containsKey('session_id') && authParams.containsKey('session_id')) {
+      effectiveBody['session_id'] = authParams['session_id'];
+    }
+
+    final headers = defaultHeaders;
+
     if (_resolvedBaseUrl != null) {
       try {
         final uri = Uri.parse('$_resolvedBaseUrl$endpoint');
         final response = await http
-            .post(uri, headers: defaultHeaders, body: json.encode(body))
-            .timeout(const Duration(milliseconds: 3000));
+            .post(uri, headers: headers, body: json.encode(effectiveBody))
+            .timeout(const Duration(milliseconds: 4000));
         if (response.statusCode == 200 || response.statusCode == 201) return response;
       } catch (_) {}
     }
@@ -231,7 +274,7 @@ class ApiService {
 
     for (final base in candidateBaseUrls) {
       final uri = Uri.parse('$base$endpoint');
-      http.post(uri, headers: defaultHeaders, body: json.encode(body)).timeout(const Duration(milliseconds: 3000)).then((resp) {
+      http.post(uri, headers: headers, body: json.encode(effectiveBody)).timeout(const Duration(milliseconds: 4000)).then((resp) {
         if ((resp.statusCode == 200 || resp.statusCode == 201) && !completer.isCompleted) {
           _resolvedBaseUrl = base;
           SharedPreferences.getInstance().then((p) => p.setString('app_cached_base_url', base)).catchError((_) => false);
@@ -251,10 +294,12 @@ class ApiService {
 
   /// Helper to perform HTTP DELETE with dynamic candidate URL resolution & fallback
   static Future<http.Response?> _deleteWithFallback(String endpoint) async {
+    final headers = defaultHeaders;
+
     if (_resolvedBaseUrl != null) {
       try {
         final uri = Uri.parse('$_resolvedBaseUrl$endpoint');
-        final response = await http.delete(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 3000));
+        final response = await http.delete(uri, headers: headers).timeout(const Duration(milliseconds: 3500));
         if (response.statusCode == 200 || response.statusCode == 204) return response;
       } catch (_) {}
     }
@@ -262,7 +307,7 @@ class ApiService {
     for (final base in candidateBaseUrls) {
       try {
         final uri = Uri.parse('$base$endpoint');
-        final response = await http.delete(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 3000));
+        final response = await http.delete(uri, headers: headers).timeout(const Duration(milliseconds: 3500));
         if (response.statusCode == 200 || response.statusCode == 204) {
           _resolvedBaseUrl = base;
           return response;
@@ -280,18 +325,23 @@ class ApiService {
         if (decoded is List) return decoded;
         if (decoded is Map<String, dynamic>) {
           if (decoded['data'] is List) return decoded['data'] as List<dynamic>;
-          if (decoded['messages'] is List) return decoded['messages'] as List<dynamic>;
           if (decoded['results'] is List) return decoded['results'] as List<dynamic>;
+          if (decoded['messages'] is List) return decoded['messages'] as List<dynamic>;
           if (decoded['words'] is List) return decoded['words'] as List<dynamic>;
           if (decoded['items'] is List) return decoded['items'] as List<dynamic>;
           if (decoded['mcqs'] is List) return decoded['mcqs'] as List<dynamic>;
+          if (decoded['correct_mcqs'] is List) return decoded['correct_mcqs'] as List<dynamic>;
+          if (decoded['wrong_mcqs'] is List) return decoded['wrong_mcqs'] as List<dynamic>;
+          if (decoded['saved_mcqs'] is List) return decoded['saved_mcqs'] as List<dynamic>;
+          if (decoded['notes'] is List) return decoded['notes'] as List<dynamic>;
           if (decoded['data'] is Map<String, dynamic>) {
             final subMap = decoded['data'] as Map<String, dynamic>;
-            if (subMap['messages'] is List) return subMap['messages'] as List<dynamic>;
-            if (subMap['results'] is List) return subMap['results'] as List<dynamic>;
             if (subMap['data'] is List) return subMap['data'] as List<dynamic>;
+            if (subMap['results'] is List) return subMap['results'] as List<dynamic>;
+            if (subMap['messages'] is List) return subMap['messages'] as List<dynamic>;
             if (subMap['words'] is List) return subMap['words'] as List<dynamic>;
             if (subMap['items'] is List) return subMap['items'] as List<dynamic>;
+            if (subMap['mcqs'] is List) return subMap['mcqs'] as List<dynamic>;
           }
         }
       } catch (e) {
@@ -1187,10 +1237,6 @@ class ApiService {
   // ─────────────────────────────────────────────────────
   // 📌 16. Client Verification & App Licensing API
   // ─────────────────────────────────────────────────────
-  static String? _authToken;
-  static void setAuthToken(String token) {
-    _authToken = token;
-  }
 
   /// GET /api/v1/license/status or /client/status
   static Future<Map<String, dynamic>?> fetchClientStatus({String? sessionId, String? phone}) async {
