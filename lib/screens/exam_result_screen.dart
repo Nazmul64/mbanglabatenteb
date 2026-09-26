@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -248,6 +248,18 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
           icon: const Icon(Icons.arrow_back_rounded, color: Colors.black87),
           onPressed: () => Navigator.pop(context),
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Home (à¦¹à§‹à¦® à¦ªà§‡à¦œ)',
+            icon: const Icon(Icons.home_rounded, color: Colors.black87),
+            onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
+          ),
+          IconButton(
+            tooltip: 'Ripeti Test (à¦ªà§à¦¨à¦°à¦¾à§Ÿ à¦ªà¦°à§€à¦•à§à¦·à¦¾)',
+            icon: const Icon(Icons.refresh_rounded, color: Colors.black87),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ],
       ),
       body: Stack(
         children: [
@@ -378,6 +390,42 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                       ],
                     ),
                   ),
+                                    const SizedBox(height: 16),
+
+                  // Quick Action Buttons (Home and Retest)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
+                          icon: const Icon(Icons.home_rounded, size: 18),
+                          label: const Text('à¦¹à§‹à¦® à¦ªà§‡à¦œ (Home)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2563EB),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            elevation: 2,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.rotate_right_rounded, size: 18),
+                          label: const Text('à¦ªà§à¦¨à¦°à¦¾à§Ÿ à¦Ÿà§‡à¦¸à§à¦Ÿ (Retest)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF16A34A),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            elevation: 2,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 20),
 
                   // 4. Questions Detailed Cards List
@@ -385,6 +433,42 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                     children: filteredList.map((item) => _buildQuestionResultCard(item, isDark)).toList(),
                   ),
                   const SizedBox(height: 24),
+
+                  // Bottom Action Buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
+                          icon: const Icon(Icons.home_rounded, size: 18),
+                          label: const Text('à¦¹à§‹à¦® à¦ªà§‡à¦œà§‡ à¦¯à¦¾à¦¨ (Home)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2563EB),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            elevation: 2,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.rotate_right_rounded, size: 18),
+                          label: const Text('à¦†à¦¬à¦¾à¦° à¦Ÿà§‡à¦¸à§à¦Ÿ à¦¦à¦¿à¦¨ (Retest)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF16A34A),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            elevation: 2,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 36),
                 ],
               ),
             ),

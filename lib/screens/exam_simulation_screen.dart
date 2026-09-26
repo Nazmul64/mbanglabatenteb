@@ -141,9 +141,7 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
 
     if (widget.customQuestions != null && widget.customQuestions!.isNotEmpty) {
       List<ExamQuestion> customLoaded = [];
-      final questionsList = widget.customQuestions!.length > 30
-          ? (List<McqQuestion>.from(widget.customQuestions!)..shuffle()).take(30).toList()
-          : widget.customQuestions!;
+      final questionsList = widget.customQuestions!;
 
       for (int index = 0; index < questionsList.length; index++) {
         final q = questionsList[index];
@@ -1323,9 +1321,9 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 14),
                   child: Row(
-                    children: List.generate(3, (index) {
+                    children: List.generate(_questions.isEmpty ? 1 : (_questions.length / 10).ceil(), (index) {
                       final start = index * 10 + 1;
-                      final end = start + 9;
+                      final end = (start + 9).clamp(start, _questions.length > 0 ? _questions.length : (start + 9));
                       final isSelected = _selectedGroupIndex == index;
                       final isAvailable = (start - 1) < _questions.length;
                       return Expanded(
@@ -1402,108 +1400,62 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                 ),
                 const SizedBox(height: 8),
 
-                // 3. Questions Grid Bar (1 to 30) - 2 rows of 15 buttons (Matching Web Screenshot)
+                // 3. Questions Grid Bar - Dynamic rows of 15 buttons for all questions (e.g. 1-35)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 14.0),
                   child: Column(
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: List.generate(15, (i) {
-                          final qIndex = i;
-                          final isAvailable = qIndex < _questions.length;
-                          final isCurrent = qIndex == safeIndex;
-                          final isAnswered = isAvailable && _questions[qIndex].userSelectedVero != null;
+                      for (int rowIndex = 0; rowIndex < (_questions.isEmpty ? 2 : (_questions.length / 15).ceil()); rowIndex++) ...[
+                        if (rowIndex > 0) const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: List.generate(15, (colIndex) {
+                            final qIndex = rowIndex * 15 + colIndex;
+                            final isAvailable = qIndex < _questions.length;
+                            final isCurrent = qIndex == safeIndex;
+                            final isAnswered = isAvailable && _questions[qIndex].userSelectedVero != null;
 
-                          return InkWell(
-                            onTap: isAvailable
-                                ? () {
-                                    setState(() {
-                                      _currentIndex = qIndex;
-                                      _selectedGroupIndex = qIndex ~/ 10;
-                                    });
-                                  }
-                                : null,
-                            child: Container(
-                              width: 22,
-                              height: 22,
-                              decoration: BoxDecoration(
-                                color: isCurrent
-                                    ? const Color(0xFFE53935)
-                                    : (isAnswered ? const Color(0xFF4CAF50) : (isDark ? Colors.white10 : Colors.white)),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(
-                                  color: isCurrent
-                                      ? const Color(0xFFE53935)
-                                      : (isAnswered ? const Color(0xFF4CAF50) : (isDark ? Colors.white24 : Colors.grey.shade300)),
-                                  width: 1.0,
-                                ),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  '${qIndex + 1}',
-                                  style: TextStyle(
-                                    fontSize: 9.5,
-                                    fontWeight: FontWeight.bold,
-                                    color: (isCurrent || isAnswered)
-                                        ? Colors.white
-                                        : (isAvailable ? (isDark ? Colors.white70 : Colors.black87) : Colors.grey.shade400),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        }),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: List.generate(15, (i) {
-                          final qIndex = i + 15;
-                          final isAvailable = qIndex < _questions.length;
-                          final isCurrent = qIndex == safeIndex;
-                          final isAnswered = isAvailable && _questions[qIndex].userSelectedVero != null;
-
-                          return InkWell(
-                            onTap: isAvailable
-                                ? () {
-                                    setState(() {
-                                      _currentIndex = qIndex;
-                                      _selectedGroupIndex = qIndex ~/ 10;
-                                    });
-                                  }
-                                : null,
-                            child: Container(
-                              width: 22,
-                              height: 22,
-                              decoration: BoxDecoration(
-                                color: isCurrent
-                                    ? const Color(0xFFE53935)
-                                    : (isAnswered ? const Color(0xFF4CAF50) : (isDark ? Colors.white10 : Colors.white)),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(
-                                  color: isCurrent
-                                      ? const Color(0xFFE53935)
-                                      : (isAnswered ? const Color(0xFF4CAF50) : (isDark ? Colors.white24 : Colors.grey.shade300)),
-                                  width: 1.0,
-                                ),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  '${qIndex + 1}',
-                                  style: TextStyle(
-                                    fontSize: 9.5,
-                                    fontWeight: FontWeight.bold,
-                                    color: (isCurrent || isAnswered)
-                                        ? Colors.white
-                                        : (isAvailable ? (isDark ? Colors.white70 : Colors.black87) : Colors.grey.shade400),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        }),
-                      ),
+                            return isAvailable
+                                ? InkWell(
+                                    onTap: () {
+                                      setState(() {
+                                        _currentIndex = qIndex;
+                                        _selectedGroupIndex = qIndex ~/ 10;
+                                      });
+                                    },
+                                    child: Container(
+                                      width: 22,
+                                      height: 22,
+                                      decoration: BoxDecoration(
+                                        color: isCurrent
+                                            ? const Color(0xFFE53935)
+                                            : (isAnswered ? const Color(0xFF4CAF50) : (isDark ? Colors.white10 : Colors.white)),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(
+                                          color: isCurrent
+                                              ? const Color(0xFFE53935)
+                                              : (isAnswered ? const Color(0xFF4CAF50) : (isDark ? Colors.white24 : Colors.grey.shade300)),
+                                          width: 1.0,
+                                        ),
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          '${qIndex + 1}',
+                                          style: TextStyle(
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.bold,
+                                            color: (isCurrent || isAnswered)
+                                                ? Colors.white
+                                                : (isDark ? Colors.white70 : Colors.black87),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                : const SizedBox(width: 22, height: 22);
+                          }),
+                        ),
+                      ],
                     ],
                   ),
                 ),
