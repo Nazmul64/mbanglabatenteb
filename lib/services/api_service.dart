@@ -40,31 +40,89 @@ class ApiService {
     }
   }
 
-  /// Flushes in-memory response caches and resets active server resolution
+  static SharedPreferences? _prefs;
+
+  /// Flushes in-memory and persistent response caches and resets active server resolution
   static void clearAllCache() {
     _apiResponseCache.clear();
     _cachedLiveExamPool = null;
     _resolvedBaseUrl = liveProductionUrl;
-    debugPrint('🧹 ApiService: All in-memory API caches cleared.');
+    if (_prefs != null) {
+      final keys = _prefs!.getKeys().where((k) => k.startsWith('offline_cache_')).toList();
+      for (final k in keys) {
+        _prefs!.remove(k);
+      }
+    }
+    debugPrint('🧹 ApiService: All local storage & in-memory caches cleared.');
   }
 
-  /// Initialize server configuration by probing live URLs and fetching active settings
+  /// Restore all saved API responses from Local Storage into memory for 0ms Instant Access
+  static void _loadAllFromLocalStorage() {
+    if (_prefs == null) return;
+    try {
+      final keys = _prefs!.getKeys();
+      int loaded = 0;
+      for (final key in keys) {
+        if (key.startsWith('offline_cache_')) {
+          final cacheKey = key.substring('offline_cache_'.length);
+          final body = _prefs!.getString(key);
+          if (body != null && body.isNotEmpty) {
+            _apiResponseCache[cacheKey] = http.Response(body, 200, headers: {'content-type': 'application/json'});
+            loaded++;
+          }
+        }
+      }
+      debugPrint('💾 ApiService: Loaded $loaded items from Local Storage (0ms instant access enabled).');
+    } catch (e) {
+      debugPrint('Error restoring local storage cache: $e');
+    }
+  }
+
+  /// Save response body to persistent Local Storage
+  static void _saveToLocalStorage(String cacheKey, String body) {
+    if (_prefs == null) {
+      SharedPreferences.getInstance().then((p) {
+        _prefs = p;
+        p.setString('offline_cache_$cacheKey', body).catchError((_) => false);
+      }).catchError((_) {});
+    } else {
+      _prefs!.setString('offline_cache_$cacheKey', body).catchError((_) => false);
+    }
+  }
+
+  /// Silent background fetch to update Local Storage without blocking user / screens
+  static void _silentBackgroundRefresh(String endpoint, Map<String, String> queryParameters, Map<String, String> headers, String cacheKey) {
+    Future.microtask(() async {
+      try {
+        final base = _resolvedBaseUrl ?? liveProductionUrl;
+        final uri = Uri.parse('$base$endpoint').replace(queryParameters: queryParameters.isNotEmpty ? queryParameters : null);
+        final resp = await http.get(uri, headers: headers).timeout(const Duration(seconds: 4));
+        if (resp.statusCode == 200 && resp.body.isNotEmpty) {
+          _apiResponseCache[cacheKey] = resp;
+          _saveToLocalStorage(cacheKey, resp.body);
+        }
+      } catch (_) {}
+    });
+  }
+
+  /// Initialize server configuration by probing live URLs, loading Local Storage, and fetching active settings
   static Future<void> initServerConfig() async {
     _resolvedBaseUrl = liveProductionUrl;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('app_cached_base_url', liveProductionUrl);
+      _prefs = await SharedPreferences.getInstance();
+      await _prefs!.setString('app_cached_base_url', liveProductionUrl);
+      _loadAllFromLocalStorage();
 
       // Immediately restore stored user identity into memory
-      final phone = prefs.getString('app_client_phone') ??
-          prefs.getString('user_phone') ??
-          prefs.getString('phone') ??
-          prefs.getString('mobile');
-      final sessionId = prefs.getString('app_client_session_id') ??
-          prefs.getString('app_session_id') ??
-          prefs.getString('session_id') ??
-          prefs.getString('device_id');
-      final token = prefs.getString('app_client_token');
+      final phone = _prefs!.getString('app_client_phone') ??
+          _prefs!.getString('user_phone') ??
+          _prefs!.getString('phone') ??
+          _prefs!.getString('mobile');
+      final sessionId = _prefs!.getString('app_client_session_id') ??
+          _prefs!.getString('app_session_id') ??
+          _prefs!.getString('session_id') ??
+          _prefs!.getString('device_id');
+      final token = _prefs!.getString('app_client_token');
 
       if (phone != null && phone.trim().isNotEmpty) _activeClientPhone = phone.trim();
       if (sessionId != null && sessionId.trim().isNotEmpty) _activeSessionId = sessionId.trim();
@@ -201,8 +259,24 @@ class ApiService {
     }
 
     final cacheKey = '$endpoint?${effectiveParams.entries.map((e) => '${e.key}=${e.value}').join('&')}';
-    if (useCache && _apiResponseCache.containsKey(cacheKey)) {
-      return _apiResponseCache[cacheKey];
+    
+    // 1. INSTANT LOCAL STORAGE RETURN (0ms latency, zero-loading)
+    if (useCache) {
+      if (_apiResponseCache.containsKey(cacheKey)) {
+        _silentBackgroundRefresh(endpoint, effectiveParams, defaultHeaders, cacheKey);
+        return _apiResponseCache[cacheKey];
+      }
+      
+      // Check SharedPreferences if not already in memory
+      if (_prefs != null) {
+        final diskBody = _prefs!.getString('offline_cache_$cacheKey');
+        if (diskBody != null && diskBody.isNotEmpty) {
+          final resp = http.Response(diskBody, 200, headers: {'content-type': 'application/json'});
+          _apiResponseCache[cacheKey] = resp;
+          _silentBackgroundRefresh(endpoint, effectiveParams, defaultHeaders, cacheKey);
+          return resp;
+        }
+      }
     }
 
     final headers = defaultHeaders;
@@ -212,7 +286,10 @@ class ApiService {
         final uri = Uri.parse('$_resolvedBaseUrl$endpoint').replace(queryParameters: effectiveParams.isNotEmpty ? effectiveParams : null);
         final response = await http.get(uri, headers: headers).timeout(const Duration(milliseconds: 3500));
         if (response.statusCode == 200) {
-          if (useCache) _apiResponseCache[cacheKey] = response;
+          if (useCache) {
+            _apiResponseCache[cacheKey] = response;
+            _saveToLocalStorage(cacheKey, response.body);
+          }
           return response;
         }
       } catch (_) {}
@@ -228,7 +305,10 @@ class ApiService {
         if (resp.statusCode == 200 && !completer.isCompleted) {
           _resolvedBaseUrl = base;
           SharedPreferences.getInstance().then((p) => p.setString('app_cached_base_url', base)).catchError((_) => false);
-          if (useCache) _apiResponseCache[cacheKey] = resp;
+          if (useCache) {
+            _apiResponseCache[cacheKey] = resp;
+            _saveToLocalStorage(cacheKey, resp.body);
+          }
           completer.complete(resp);
         } else {
           pending--;
@@ -618,25 +698,45 @@ class ApiService {
 
   static List<dynamic>? _cachedLiveExamPool;
 
-  /// GET /api/v1/scheda-esame/generate with live Argomenti & Cartelli MCQ aggregation
+  /// GET /api/v1/scheda-esame/generate with guaranteed 30 questions
   static Future<List<dynamic>> generateSchedaEsame({bool forceRefresh = false}) async {
     try {
-      // 1. If we have a cached live pool and not forcing refresh, pick 30 random questions instantly
-      if (!forceRefresh && _cachedLiveExamPool != null && _cachedLiveExamPool!.isNotEmpty) {
+      // 1. If we have a cached live pool with at least 30 questions and not forcing refresh, pick 30 random questions instantly
+      if (!forceRefresh && _cachedLiveExamPool != null && _cachedLiveExamPool!.length >= 30) {
         final shuffled = List<dynamic>.from(_cachedLiveExamPool!)..shuffle();
         return shuffled.take(30).toList();
       }
 
+      // Check local storage for cached pool
+      if (!forceRefresh && _prefs != null) {
+        final diskPoolRaw = _prefs!.getString('offline_cache_scheda_pool');
+        if (diskPoolRaw != null && diskPoolRaw.isNotEmpty) {
+          try {
+            final decoded = json.decode(diskPoolRaw);
+            if (decoded is List && decoded.length >= 30) {
+              _cachedLiveExamPool = decoded;
+              final shuffled = List<dynamic>.from(decoded)..shuffle();
+              return shuffled.take(30).toList();
+            }
+          } catch (_) {}
+        }
+      }
+
       // 2. Try official endpoint first
-      final officialRes = await _getWithFallback('/scheda-esame/generate');
+      final officialRes = await _getWithFallback('/scheda-esame/generate', useCache: !forceRefresh);
       final officialList = _extractList(officialRes);
-      if (officialList.isNotEmpty) {
+      if (officialList.length >= 30) {
         _cachedLiveExamPool = officialList;
-        return officialList;
+        _saveToLocalStorage('scheda_pool', json.encode(officialList));
+        final shuffled = List<dynamic>.from(officialList)..shuffle();
+        return shuffled.take(30).toList();
       }
 
       // 3. Parallel fetch all live MCQs from Argomenti and Cartelli
       final List<dynamic> pool = [];
+      if (officialList.isNotEmpty) {
+        pool.addAll(officialList);
+      }
 
       final results = await Future.wait([
         fetchChapters(),
@@ -696,16 +796,84 @@ class ApiService {
 
       await Future.wait(fetchTasks);
 
-      if (pool.isNotEmpty) {
-        _cachedLiveExamPool = pool;
-        final shuffled = List<dynamic>.from(pool)..shuffle();
-        return shuffled.take(30).toList();
+      // Deduplicate pool by question text / statement
+      final Map<String, dynamic> uniqueMap = {};
+      for (var item in pool) {
+        if (item is Map) {
+          final text = (item['italian'] ?? item['question'] ?? item['domanda'] ?? '').toString().trim();
+          if (text.isNotEmpty && !uniqueMap.containsKey(text)) {
+            uniqueMap[text] = item;
+          }
+        }
+      }
+
+      final uniqueQuestions = uniqueMap.values.toList();
+      if (uniqueQuestions.isNotEmpty) {
+        _cachedLiveExamPool = uniqueQuestions;
+        _saveToLocalStorage('scheda_pool', json.encode(uniqueQuestions));
+
+        // If >= 30, shuffle and pick 30
+        if (uniqueQuestions.length >= 30) {
+          final shuffled = List<dynamic>.from(uniqueQuestions)..shuffle();
+          return shuffled.take(30).toList();
+        }
+
+        // If fewer than 30 unique questions in database, pad to 30 so exam never exits early!
+        final List<dynamic> padded = List<dynamic>.from(uniqueQuestions);
+        int padIndex = 0;
+        while (padded.length < 30) {
+          padded.add(uniqueQuestions[padIndex % uniqueQuestions.length]);
+          padIndex++;
+        }
+        return padded;
       }
 
       return [];
     } catch (e) {
       debugPrint('Error generating scheda esame: $e');
       return [];
+    }
+  }
+
+  /// Preload and synchronize all chapters, pages, questions, vocabulary, cards into Local Storage
+  static Future<void> syncAllDataToLocalStorage() async {
+    try {
+      debugPrint('🔄 Local Storage Sync: Starting background preloader...');
+      // 1. Sliders & Home Cards
+      await fetchSliders();
+      await fetchHomeCards();
+
+      // 2. Dictionary words
+      await fetchWords();
+
+      // 3. Chapters & Pages & Questions
+      final chapters = await fetchChapters();
+      for (var ch in chapters) {
+        final cId = ch['id'] is int ? ch['id'] as int : int.tryParse('${ch['id']}') ?? 1;
+        final pages = await fetchChapterPages(cId);
+        for (var p in pages) {
+          final pId = p['id'] is int ? p['id'] as int : int.tryParse('${p['id']}') ?? 1;
+          await fetchPageDetails(pId);
+        }
+      }
+
+      // 4. Cartelli Chapters & Pages & MCQs
+      final cartelliChapters = await fetchCartelliChapters();
+      for (var cch in cartelliChapters) {
+        final cId = cch['id'] is int ? cch['id'] as int : int.tryParse('${cch['id']}') ?? 1;
+        final cPages = await fetchCartelliPages(cId);
+        for (var cp in cPages) {
+          final cpId = cp['id'] is int ? cp['id'] as int : int.tryParse('${cp['id']}') ?? 1;
+          await fetchCartelliPageMcqs(cpId);
+        }
+      }
+
+      // 5. Scheda Esame 30-MCQ Pool
+      await generateSchedaEsame(forceRefresh: true);
+
+      debugPrint('✅ Local Storage Sync: All data successfully synced into local storage (0ms loading ready).');
+    } catch (e) {
+      debugPrint('Local Storage Sync note: $e');
     }
   }
 

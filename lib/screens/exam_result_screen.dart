@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -390,16 +390,16 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                       ],
                     ),
                   ),
-                                    const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-                  // Quick Action Buttons (Home and Retest)
+                  // Top Action Buttons (Home and Retest)
                   Row(
                     children: [
                       Expanded(
                         child: ElevatedButton.icon(
                           onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
                           icon: const Icon(Icons.home_rounded, size: 18),
-                          label: const Text('à¦¹à§‹à¦® à¦ªà§‡à¦œ (Home)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+                          label: const Text('হোম পেজ (Home)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF2563EB),
                             foregroundColor: Colors.white,
@@ -414,7 +414,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                         child: ElevatedButton.icon(
                           onPressed: () => Navigator.pop(context),
                           icon: const Icon(Icons.rotate_right_rounded, size: 18),
-                          label: const Text('à¦ªà§à¦¨à¦°à¦¾à§Ÿ à¦Ÿà§‡à¦¸à§à¦Ÿ (Retest)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+                          label: const Text('পুনরায় টেস্ট (Retest)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF16A34A),
                             foregroundColor: Colors.white,
@@ -441,7 +441,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                         child: ElevatedButton.icon(
                           onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
                           icon: const Icon(Icons.home_rounded, size: 18),
-                          label: const Text('à¦¹à§‹à¦® à¦ªà§‡à¦œà§‡ à¦¯à¦¾à¦¨ (Home)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+                          label: const Text('হোম পেজে যান (Home)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF2563EB),
                             foregroundColor: Colors.white,
@@ -456,7 +456,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                         child: ElevatedButton.icon(
                           onPressed: () => Navigator.pop(context),
                           icon: const Icon(Icons.rotate_right_rounded, size: 18),
-                          label: const Text('à¦†à¦¬à¦¾à¦° à¦Ÿà§‡à¦¸à§à¦Ÿ à¦¦à¦¿à¦¨ (Retest)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+                          label: const Text('আবার টেস্ট দিন (Retest)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF16A34A),
                             foregroundColor: Colors.white,

@@ -25,6 +25,7 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   ApiService.initServerConfig().then((_) {
     BookmarkManager.syncAllWithServer();
+    ApiService.syncAllDataToLocalStorage();
   }).catchError((_) {});
   runApp(const MyApp());
 }

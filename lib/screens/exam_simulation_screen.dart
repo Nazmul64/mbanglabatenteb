@@ -181,12 +181,11 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
     List<ExamQuestion> loaded = [];
 
     try {
-      // Fetch live random questions combining Argomenti & Cartelli
+      // Fetch live random questions combining Argomenti & Cartelli (always full 30 questions)
       final apiData = await ApiService.generateSchedaEsame();
       if (apiData.isNotEmpty) {
-        final dataToUse = apiData.length > 30 ? (List<dynamic>.from(apiData)..shuffle()).take(30).toList() : apiData;
-        for (int index = 0; index < dataToUse.length; index++) {
-          final q = dataToUse[index];
+        for (int index = 0; index < apiData.length; index++) {
+          final q = apiData[index];
           final statement = (q['italian'] ?? q['domanda'] ?? q['question'] ?? q['text'] ?? '').toString();
           if (statement.trim().isEmpty) continue;
 
@@ -214,7 +213,7 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
             parsedVocab = rawVocab;
           }
 
-          // Strictly only explicit question image (NO cover_image, NO page_image, NO vocabulary underlines fallback)
+          // Strictly only explicit question image
           String? img;
           final rawImg = (q['image'] ?? q['image_path'] ?? q['img'] ?? q['photo'] ?? q['image_url'])?.toString().trim();
           if (rawImg != null &&
@@ -249,6 +248,30 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
             image: img,
             audio: audio,
           ));
+        }
+
+        // Guarantee exactly 30 questions for exam simulation (never cut off at 21/22 MCQs)
+        if (loaded.length > 30) {
+          loaded = (List<ExamQuestion>.from(loaded)..shuffle()).take(30).toList();
+        } else if (loaded.isNotEmpty && loaded.length < 30) {
+          final originalList = List<ExamQuestion>.from(loaded);
+          int padIdx = 0;
+          while (loaded.length < 30) {
+            final src = originalList[padIdx % originalList.length];
+            loaded.add(ExamQuestion(
+              id: '${src.id}_pad_${loaded.length + 1}',
+              statement: src.statement,
+              isVero: src.isVero,
+              translation: src.translation,
+              vocabularyHelp: src.vocabularyHelp,
+              vocabulary: src.vocabulary,
+              chapter: src.chapter,
+              chapterName: src.chapterName,
+              image: src.image,
+              audio: src.audio,
+            ));
+            padIdx++;
+          }
         }
       }
     } catch (e) {
