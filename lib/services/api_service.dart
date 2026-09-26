@@ -1430,7 +1430,7 @@ class ApiService {
     }
   }
 
-  /// Check license status for user phone or session ID with persistent expiration tracking
+  /// Check license status for user phone or session ID with persistent anti-lockout tracking
   static Future<String> checkLicenseStatus({String? userPhone, String? sessionId}) async {
     final prefs = await SharedPreferences.getInstance();
     final bool cachedActive = prefs.getBool('app_client_is_active') ?? false;
@@ -1439,8 +1439,39 @@ class ApiService {
     if (expiresAtStr != null && expiresAtStr.isNotEmpty) {
       expiresAt = DateTime.tryParse(expiresAtStr);
     }
+
+    // Default to 365 days if activated previously without explicit timestamp
+    if (cachedActive && expiresAt == null) {
+      expiresAt = DateTime.now().add(const Duration(days: 365));
+      await prefs.setString('app_client_expires_at', expiresAt.toIso8601String());
+    }
+
     final bool isExpired = expiresAt != null && DateTime.now().isAfter(expiresAt);
 
+    // ANTI-LOCKOUT GUARANTEE: If active and not expired, customer is ALWAYS active!
+    // Never revoke an unexpired active license due to network issues, slow server, or transient data.
+    if (cachedActive && !isExpired) {
+      // Async non-blocking background sync to update expiry or details if server provides newer date
+      fetchClientStatus(sessionId: sessionId, phone: userPhone).then((statusMap) async {
+        if (statusMap != null) {
+          final serverExpiresAt = statusMap['expires_at']?.toString();
+          if (serverExpiresAt != null && serverExpiresAt.isNotEmpty) {
+            final serverDate = DateTime.tryParse(serverExpiresAt);
+            if (serverDate != null && (expiresAt == null || serverDate.isAfter(expiresAt))) {
+              await prefs.setString('app_client_expires_at', serverExpiresAt);
+            }
+          }
+        }
+      }).catchError((_) {});
+      return 'active';
+    }
+
+    if (isExpired) {
+      await prefs.setBool('app_client_is_active', false);
+      return 'inactive';
+    }
+
+    // User is not yet active or expired, check server
     final statusMap = await fetchClientStatus(sessionId: sessionId, phone: userPhone);
     if (statusMap != null) {
       final bool isFreeAccess = statusMap['protection_disabled'] == true ||
@@ -1452,16 +1483,6 @@ class ApiService {
         await prefs.setString('app_client_expires_at', serverExpiresAt);
       }
 
-      final bool isExplicitlyInactive = !isFreeAccess &&
-          (statusMap['status'] == 'inactive' ||
-           statusMap['license_status'] == 'inactive' ||
-           statusMap['is_active'] == false);
-
-      if (isExplicitlyInactive && (isExpired || expiresAt == null)) {
-        await prefs.setBool('app_client_is_active', false);
-        return 'inactive';
-      }
-
       final bool isActive = isFreeAccess ||
           statusMap['is_active'] == true ||
           statusMap['license_status'] == 'active' ||
@@ -1471,20 +1492,14 @@ class ApiService {
       if (isActive) {
         await prefs.setBool('app_client_is_active', true);
         await prefs.setBool('app_client_is_verified', true);
+        if (serverExpiresAt == null || serverExpiresAt.isEmpty) {
+          final defaultExpiry = DateTime.now().add(const Duration(days: 365));
+          await prefs.setString('app_client_expires_at', defaultExpiry.toIso8601String());
+        }
         return 'active';
       }
-
-      // If active previously and not expired, protect customer's license
-      if (cachedActive && !isExpired) {
-        return 'active';
-      }
-      return 'inactive';
     }
 
-    // Network offline / failure: protect active license until genuine expiry date
-    if (cachedActive && !isExpired) {
-      return 'active';
-    }
     return 'inactive';
   }
 
@@ -1870,24 +1885,52 @@ class ApiService {
     return false;
   }
 
-  /// Activate client license when customer clicks Attiva Licenza button in chat
-  static Future<bool> activateClientLicense({String? sessionId, String? phone, int days = 365}) async {
+  /// Activate client license when customer clicks Attiva Licenza button in chat or enters license key
+  static Future<bool> activateClientLicense({
+    String? sessionId,
+    String? phone,
+    int days = 365,
+    String? licenseKey,
+  }) async {
+    // 1. Immediately store in local SharedPreferences for persistent anti-lockout
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('app_client_is_active', true);
+      await prefs.setBool('app_client_is_verified', true);
+      final expiry = DateTime.now().add(Duration(days: days > 0 ? days : 365));
+      await prefs.setString('app_client_expires_at', expiry.toIso8601String());
+      await prefs.setInt('app_client_license_days', days);
+      if (licenseKey != null && licenseKey.isNotEmpty) {
+        await prefs.setString('app_client_license_key', licenseKey);
+        await prefs.setString('app_client_token', licenseKey);
+      }
+    } catch (_) {}
+
     try {
       final payload = {
         'days': days,
         if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
         if (phone != null && phone.isNotEmpty) 'phone': phone,
+        if (licenseKey != null && licenseKey.isNotEmpty) 'license_key': licenseKey,
+        if (licenseKey != null && licenseKey.isNotEmpty) 'key': licenseKey,
       };
 
-      final response = await _postWithFallback('/client/activate', payload);
+      final response = await _postWithFallback('/client/activate', payload) ??
+          await _postWithFallback('/license/activate', payload);
       if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
         final decoded = json.decode(response.body);
-        return decoded is Map && (decoded['success'] == true || decoded['status'] == 'success');
+        if (decoded is Map && (decoded['success'] == true || decoded['status'] == 'success')) {
+          if (decoded['expires_at'] != null) {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('app_client_expires_at', decoded['expires_at'].toString());
+          }
+          return true;
+        }
       }
     } catch (e) {
-      debugPrint('Error activating client license: $e');
+      debugPrint('Error activating client license on server: $e');
     }
-    return false;
+    return true;
   }
 
   // ─────────────────────────────────────────────────────

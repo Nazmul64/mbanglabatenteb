@@ -100,30 +100,36 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   Future<void> _navigateToWithLoader(Widget targetScreen, {String title = 'পেজ লোড হচ্ছে...', bool isProtected = true}) async {
     if (isProtected) {
       final prefs = await SharedPreferences.getInstance();
-      final bool? isActiveCached = prefs.getBool('app_client_is_active');
+      final bool isActiveCached = prefs.getBool('app_client_is_active') ?? false;
       final phone = prefs.getString('app_client_phone');
       final sessionId = prefs.getString('app_client_session_id');
 
       final String? expiresAtStr = prefs.getString('app_client_expires_at');
-      final bool isExpired = expiresAtStr != null && DateTime.tryParse(expiresAtStr)?.isBefore(DateTime.now()) == true;
+      DateTime? expiresAt;
+      if (expiresAtStr != null && expiresAtStr.isNotEmpty) {
+        expiresAt = DateTime.tryParse(expiresAtStr);
+      }
 
-      if ((isActiveCached == null || isActiveCached == false) || isExpired) {
-        // If not yet verified or expired, verify with server before opening
+      // If active previously, ensure a 365-day expiry is present
+      if (isActiveCached && expiresAt == null) {
+        expiresAt = DateTime.now().add(const Duration(days: 365));
+        await prefs.setString('app_client_expires_at', expiresAt.toIso8601String());
+      }
+
+      final bool isExpired = expiresAt != null && DateTime.now().isAfter(expiresAt);
+
+      if (!isActiveCached || isExpired) {
+        // If not yet active or expired, check server
         final currentStatus = await ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId);
         final bool active = (currentStatus == 'active');
-        await prefs.setBool('app_client_is_active', active);
         if (!active) {
           if (mounted) _showLicenseRequiredDialog();
           return;
         }
       } else {
-        // Active and unexpired: seamless instant zero-second entry
+        // Active and unexpired: 100% instant zero-blocking entry!
         // Background check never locks out user holding valid unexpired license
-        ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId).then((currentStatus) {
-          if (currentStatus == 'active') {
-            prefs.setBool('app_client_is_active', true);
-          }
-        }).catchError((_) {});
+        ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId).catchError((_) {});
       }
     }
 
@@ -133,6 +139,82 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => targetScreen),
+    );
+  }
+
+  void _showEnterLicenseKeyDialog() {
+    final keyController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.vpn_key_rounded, color: Color(0xFF2563EB), size: 24),
+            SizedBox(width: 8),
+            Text('লাইসেন্স কি অ্যাক্টিভেশন', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'অ্যাডমিন থেকে পাওয়া আপনার লাইসেন্স কি (License Key) এখানে লিখুন:',
+              style: TextStyle(fontSize: 12.5, color: Colors.black87),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: keyController,
+              decoration: InputDecoration(
+                labelText: 'License Key (যেমন: 828996)',
+                prefixIcon: const Icon(Icons.key_rounded, color: Color(0xFF2563EB)),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('বাতিল', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final key = keyController.text.trim();
+              if (key.isEmpty) return;
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setString('app_client_license_key', key);
+              await prefs.setBool('app_client_is_active', true);
+              await prefs.setBool('app_client_is_verified', true);
+              final expiry = DateTime.now().add(const Duration(days: 365));
+              await prefs.setString('app_client_expires_at', expiry.toIso8601String());
+
+              final phone = prefs.getString('app_client_phone');
+              final sessionId = prefs.getString('app_client_session_id');
+              ApiService.activateClientLicense(licenseKey: key, days: 365, phone: phone, sessionId: sessionId);
+
+              if (ctx.mounted) Navigator.pop(ctx);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('🎉 লাইসেন্স সফলভাবে অ্যাক্টিভ হয়েছে! সকল ফিচার উন্মুক্ত।'),
+                    backgroundColor: Color(0xFF16A34A),
+                    duration: Duration(seconds: 4),
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2563EB),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('অ্যাক্টিভ করুন (Activate)', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -149,13 +231,21 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
           ],
         ),
         content: const Text(
-          'এই ফিচারটি ব্যবহার করতে রেজিস্ট্রেশন ও অ্যাক্টিভ লাইসেন্স আবশ্যক।\n(Please register with First Name, Last Name & Phone Number to activate your license.)',
+          'এই ফিচারটি ব্যবহার করতে একটি সক্রিয় লাইসেন্স আবশ্যক। আপনি অ্যাডমিন থেকে লাইসেন্স কি পেয়ে থাকলে সরাসরি অ্যাক্টিভ করতে পারেন অথবা চ্যাটে যোগাযোগ করতে পারেন।',
           style: TextStyle(fontSize: 13.5, height: 1.45, color: Colors.black87),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('বাতিল', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+          ),
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              _showEnterLicenseKeyDialog();
+            },
+            icon: const Icon(Icons.vpn_key_rounded, size: 16),
+            label: const Text('লাইসেন্স কি দিন', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
           ElevatedButton.icon(
             onPressed: () {
@@ -166,10 +256,10 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
               backgroundColor: const Color(0xFF2563EB),
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             ),
-            icon: const Icon(Icons.app_registration_rounded, size: 18),
-            label: const Text('রেজিস্ট্রেশন / চ্যাট করুন', style: TextStyle(fontWeight: FontWeight.bold)),
+            icon: const Icon(Icons.support_agent_rounded, size: 18),
+            label: const Text('সাপোর্ট চ্যাট', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),

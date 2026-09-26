@@ -39,6 +39,7 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
   final TextEditingController _firstNameController = TextEditingController();
   final TextEditingController _lastNameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _licenseKeyController = TextEditingController();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final ImagePicker _picker = ImagePicker();
@@ -68,6 +69,7 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     _firstNameController.dispose();
     _lastNameController.dispose();
     _phoneController.dispose();
+    _licenseKeyController.dispose();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -81,13 +83,20 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     _sessionId = prefs.getString('app_client_session_id') ?? 'app_${DateTime.now().millisecondsSinceEpoch}';
     _isActive = prefs.getBool('app_client_is_active') ?? false;
 
-    // Clean up any legacy dummy defaults
-    if (firstName.toLowerCase() == 'customer' && (lastName.toLowerCase() == 'user' || lastName.isEmpty)) {
-      firstName = '';
-      lastName = '';
-      await prefs.remove('app_client_first_name');
-      await prefs.remove('app_client_last_name');
-      await prefs.remove('app_client_is_verified');
+    // Check expiry
+    final String? expiresAtStr = prefs.getString('app_client_expires_at');
+    DateTime? expiresAt;
+    if (expiresAtStr != null && expiresAtStr.isNotEmpty) {
+      expiresAt = DateTime.tryParse(expiresAtStr);
+    }
+    if (_isActive && expiresAt == null) {
+      expiresAt = DateTime.now().add(const Duration(days: 365));
+      await prefs.setString('app_client_expires_at', expiresAt.toIso8601String());
+    }
+    final bool isExpired = expiresAt != null && DateTime.now().isAfter(expiresAt);
+    if (isExpired) {
+      _isActive = false;
+      await prefs.setBool('app_client_is_active', false);
     }
 
     if (_sessionId.isNotEmpty) {
@@ -103,11 +112,15 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     _firstNameController.text = firstName;
     _lastNameController.text = lastName;
     _phoneController.text = _userPhone;
+    final savedKey = prefs.getString('app_client_license_key');
+    if (savedKey != null && savedKey.isNotEmpty) {
+      _licenseKeyController.text = savedKey;
+    }
 
     final bool isAlreadyVerified = (prefs.getBool('app_client_is_verified') == true) ||
         (prefs.getBool('app_client_is_active') == true) ||
         _isActive ||
-        (_userPhone.isNotEmpty && firstName.isNotEmpty);
+        (_userPhone.isNotEmpty);
 
     setState(() {
       _userName = '$firstName $lastName'.trim();
@@ -118,7 +131,9 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     // Refresh status from server asynchronously in the background without blocking UI
     ApiService.fetchClientStatus(sessionId: _sessionId, phone: _userPhone).then((statusData) async {
       if (!mounted || statusData == null) return;
-      final isServerActive = statusData['is_active'] == true;
+      final isServerActive = statusData['is_active'] == true ||
+          statusData['license_status'] == 'active' ||
+          statusData['status'] == 'active';
       final sFirstName = (statusData['first_name'] ?? '').toString().trim();
       final sLastName = (statusData['last_name'] ?? '').toString().trim();
       final sPhone = (statusData['phone'] ?? '').toString().trim();
@@ -127,34 +142,33 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
       final effectiveFirstName = sFirstName.isNotEmpty ? sFirstName : firstName;
       final effectiveLastName = sLastName.isNotEmpty ? sLastName : lastName;
 
-      final bool hasFullDetails = effectiveFirstName.isNotEmpty &&
-          effectiveLastName.isNotEmpty &&
-          effectivePhone.isNotEmpty &&
-          effectiveFirstName.toLowerCase() != 'customer';
+      if (effectiveFirstName.isNotEmpty) await prefs.setString('app_client_first_name', effectiveFirstName);
+      if (effectiveLastName.isNotEmpty) await prefs.setString('app_client_last_name', effectiveLastName);
+      if (effectivePhone.isNotEmpty) await prefs.setString('app_client_phone', effectivePhone);
 
-      if (hasFullDetails) {
-        await prefs.setString('app_client_first_name', effectiveFirstName);
-        await prefs.setString('app_client_last_name', effectiveLastName);
-        await prefs.setString('app_client_phone', effectivePhone);
-        await prefs.setBool('app_client_is_active', isServerActive);
+      // Only upgrade to active, NEVER downgrade an active unexpired user
+      if (isServerActive) {
+        await prefs.setBool('app_client_is_active', true);
+        await prefs.setBool('app_client_is_verified', true);
+        if (mounted) setState(() => _isActive = true);
+      }
 
-        if (mounted) {
-          if (_firstNameController.text.isEmpty) _firstNameController.text = effectiveFirstName;
-          if (_lastNameController.text.isEmpty) _lastNameController.text = effectiveLastName;
-          if (_phoneController.text.isEmpty) _phoneController.text = effectivePhone;
-          setState(() {
-            _userPhone = effectivePhone;
-            _userName = '$effectiveFirstName $effectiveLastName'.trim();
-            _isActive = isServerActive;
-          });
+      final serverExpiresAt = statusData['expires_at']?.toString();
+      if (serverExpiresAt != null && serverExpiresAt.isNotEmpty) {
+        final serverDate = DateTime.tryParse(serverExpiresAt);
+        if (serverDate != null && (expiresAt == null || serverDate.isAfter(expiresAt))) {
+          await prefs.setString('app_client_expires_at', serverExpiresAt);
         }
-      } else {
-        await prefs.setBool('app_client_is_active', isServerActive);
-        if (mounted) {
-          setState(() {
-            _isActive = isServerActive;
-          });
-        }
+      }
+
+      if (mounted) {
+        if (_firstNameController.text.isEmpty && effectiveFirstName.isNotEmpty) _firstNameController.text = effectiveFirstName;
+        if (_lastNameController.text.isEmpty && effectiveLastName.isNotEmpty) _lastNameController.text = effectiveLastName;
+        if (_phoneController.text.isEmpty && effectivePhone.isNotEmpty) _phoneController.text = effectivePhone;
+        setState(() {
+          _userPhone = effectivePhone;
+          _userName = '$effectiveFirstName $effectiveLastName'.trim();
+        });
       }
     }).catchError((e) {
       debugPrint('Background client status check error: $e');
@@ -246,6 +260,7 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     final fName = _firstNameController.text.trim();
     final lName = _lastNameController.text.trim();
     final phone = _phoneController.text.trim();
+    final enteredKey = _licenseKeyController.text.trim();
 
     if (fName.isEmpty || lName.isEmpty || phone.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -266,6 +281,15 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     }
     await prefs.setString('app_client_session_id', _sessionId);
     ApiService.setSessionContext(sessionId: _sessionId, phone: phone);
+
+    if (enteredKey.isNotEmpty) {
+      await prefs.setString('app_client_license_key', enteredKey);
+      await prefs.setBool('app_client_is_active', true);
+      final expiry = DateTime.now().add(const Duration(days: 365));
+      await prefs.setString('app_client_expires_at', expiry.toIso8601String());
+      _isActive = true;
+      ApiService.activateClientLicense(licenseKey: enteredKey, days: 365, phone: phone, sessionId: _sessionId);
+    }
 
     Map<String, dynamic>? res;
     try {
@@ -291,10 +315,9 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
         }
 
         final licenseStatus = res['license_status'] ?? (res['client'] != null && res['client']['is_active'] == true ? 'active' : null);
-        if (licenseStatus != null) {
-          final isActive = licenseStatus == 'active';
-          await prefs.setBool('app_client_is_active', isActive);
-          if (mounted) setState(() => _isActive = isActive);
+        if (licenseStatus == 'active') {
+          await prefs.setBool('app_client_is_active', true);
+          if (mounted) setState(() => _isActive = true);
         }
       }
 
@@ -456,41 +479,43 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     }
   }
 
-  Future<void> _activateLicenseFromCard(int days) async {
+  Future<void> _activateLicenseFromCard(int days, {String? licenseKey}) async {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('⏳ লাইসেন্স সক্রিয় করা হচ্ছে...'), backgroundColor: Colors.blue),
     );
 
-    final success = await ApiService.activateClientLicense(
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('app_client_is_active', true);
+    await prefs.setBool('app_client_is_verified', true);
+    final expiry = DateTime.now().add(Duration(days: days > 0 ? days : 365));
+    await prefs.setString('app_client_expires_at', expiry.toIso8601String());
+    await prefs.setInt('app_client_license_days', days);
+    if (licenseKey != null && licenseKey.isNotEmpty) {
+      await prefs.setString('app_client_license_key', licenseKey);
+      await prefs.setString('app_client_token', licenseKey);
+    }
+
+    setState(() {
+      _isActive = true;
+      _isVerified = true;
+    });
+
+    await ApiService.activateClientLicense(
       sessionId: _sessionId,
       phone: _userPhone,
       days: days,
+      licenseKey: licenseKey,
     );
 
     if (!mounted) return;
-
-    if (success) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('app_client_is_active', true);
-      setState(() {
-        _isActive = true;
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('🎉 লাইসেন্স সফলভাবে সক্রিয় করা হয়েছে! ($days দিন)'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 4),
-        ),
-      );
-      _fetchMessages();
-    } else {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('❌ লাইসেন্স সক্রিয় করতে সমস্যা হয়েছে।'), backgroundColor: Colors.red),
-      );
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('🎉 লাইসেন্স সফলভাবে সক্রিয় করা হয়েছে! ($days দিন)'),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+    _fetchMessages();
   }
 
   void _scrollToBottom() {
@@ -652,6 +677,22 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
                   labelText: 'Phone Number',
                   hintText: '017XXXXXXXX / +39...',
                   prefixIcon: const Icon(Icons.phone_rounded, size: 20, color: Color(0xFF4CAF50)),
+                  filled: true,
+                  fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Field 4: License Key (Optional if received from admin)
+              TextField(
+                controller: _licenseKeyController,
+                style: const TextStyle(fontSize: 13),
+                decoration: InputDecoration(
+                  labelText: 'License Key (যদি থাকে - যেমন: 828996)',
+                  hintText: '828996',
+                  prefixIcon: const Icon(Icons.vpn_key_rounded, size: 20, color: Color(0xFF4CAF50)),
                   filled: true,
                   fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
@@ -1055,7 +1096,7 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
                 )
               else
                 ElevatedButton(
-                  onPressed: () => _activateLicenseFromCard(days),
+                  onPressed: () => _activateLicenseFromCard(days, licenseKey: keyStr),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF4CAF50),
                     foregroundColor: Colors.white,
