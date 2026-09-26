@@ -104,10 +104,14 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     _lastNameController.text = lastName;
     _phoneController.text = _userPhone;
 
-    // Show verification form on entry so user can review/update details or proceed
+    final bool isAlreadyVerified = (prefs.getBool('app_client_is_verified') == true) ||
+        (prefs.getBool('app_client_is_active') == true) ||
+        _isActive ||
+        (_userPhone.isNotEmpty && firstName.isNotEmpty);
+
     setState(() {
       _userName = '$firstName $lastName'.trim();
-      _isVerified = false;
+      _isVerified = isAlreadyVerified;
       _isInitialLoading = false;
     });
 

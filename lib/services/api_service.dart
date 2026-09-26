@@ -1262,24 +1262,60 @@ class ApiService {
     }
   }
 
-  /// Check license status for user phone or session ID
+  /// Check license status for user phone or session ID with persistent expiration tracking
   static Future<String> checkLicenseStatus({String? userPhone, String? sessionId}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final bool cachedActive = prefs.getBool('app_client_is_active') ?? false;
+    final String? expiresAtStr = prefs.getString('app_client_expires_at');
+    DateTime? expiresAt;
+    if (expiresAtStr != null && expiresAtStr.isNotEmpty) {
+      expiresAt = DateTime.tryParse(expiresAtStr);
+    }
+    final bool isExpired = expiresAt != null && DateTime.now().isAfter(expiresAt);
+
     final statusMap = await fetchClientStatus(sessionId: sessionId, phone: userPhone);
     if (statusMap != null) {
       final bool isFreeAccess = statusMap['protection_disabled'] == true ||
           statusMap['free_access_mode'] == true ||
           statusMap['qr_protection_enabled'] == false;
-      final bool isExplicitlyInactive = statusMap['status'] == 'inactive' ||
-          statusMap['license_status'] == 'inactive' ||
-          (statusMap.containsKey('is_active') && statusMap['is_active'] == false && !isFreeAccess);
-      if (isExplicitlyInactive) return 'inactive';
+
+      final serverExpiresAt = statusMap['expires_at']?.toString();
+      if (serverExpiresAt != null && serverExpiresAt.isNotEmpty) {
+        await prefs.setString('app_client_expires_at', serverExpiresAt);
+      }
+
+      final bool isExplicitlyInactive = !isFreeAccess &&
+          (statusMap['status'] == 'inactive' ||
+           statusMap['license_status'] == 'inactive' ||
+           statusMap['is_active'] == false);
+
+      if (isExplicitlyInactive && (isExpired || expiresAt == null)) {
+        await prefs.setBool('app_client_is_active', false);
+        return 'inactive';
+      }
 
       final bool isActive = isFreeAccess ||
           statusMap['is_active'] == true ||
           statusMap['license_status'] == 'active' ||
           statusMap['status'] == 'active' ||
           (statusMap['success'] == true && statusMap['status'] != 'inactive');
-      return isActive ? 'active' : 'inactive';
+
+      if (isActive) {
+        await prefs.setBool('app_client_is_active', true);
+        await prefs.setBool('app_client_is_verified', true);
+        return 'active';
+      }
+
+      // If active previously and not expired, protect customer's license
+      if (cachedActive && !isExpired) {
+        return 'active';
+      }
+      return 'inactive';
+    }
+
+    // Network offline / failure: protect active license until genuine expiry date
+    if (cachedActive && !isExpired) {
+      return 'active';
     }
     return 'inactive';
   }

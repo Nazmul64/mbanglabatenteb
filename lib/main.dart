@@ -103,8 +103,11 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
       final phone = prefs.getString('app_client_phone');
       final sessionId = prefs.getString('app_client_session_id');
 
-      if (isActiveCached == null || isActiveCached == false) {
-        // If not yet verified or previously inactive, verify with server before opening
+      final String? expiresAtStr = prefs.getString('app_client_expires_at');
+      final bool isExpired = expiresAtStr != null && DateTime.tryParse(expiresAtStr)?.isBefore(DateTime.now()) == true;
+
+      if ((isActiveCached == null || isActiveCached == false) || isExpired) {
+        // If not yet verified or expired, verify with server before opening
         final currentStatus = await ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId);
         final bool active = (currentStatus == 'active');
         await prefs.setBool('app_client_is_active', active);
@@ -113,10 +116,12 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
           return;
         }
       } else {
-        // Refresh license status in background without blocking screen transition
+        // Active and unexpired: seamless instant zero-second entry
+        // Background check never locks out user holding valid unexpired license
         ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId).then((currentStatus) {
-          final bool active = (currentStatus == 'active');
-          prefs.setBool('app_client_is_active', active);
+          if (currentStatus == 'active') {
+            prefs.setBool('app_client_is_active', true);
+          }
         }).catchError((_) {});
       }
     }
