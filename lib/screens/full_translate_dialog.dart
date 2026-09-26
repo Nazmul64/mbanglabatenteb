@@ -65,21 +65,14 @@ class _FullTranslateDialogState extends State<FullTranslateDialog> {
   }
 
   String? _resolveEffectiveImageUrl() {
+    // Strictly show ONLY explicit question image uploaded by admin
+    // NEVER fallback to vocabulary or underline images
     if (widget.imageUrl != null &&
         widget.imageUrl!.trim().isNotEmpty &&
         widget.imageUrl!.trim().toLowerCase() != 'null' &&
-        widget.imageUrl!.trim().toLowerCase() != 'undefined') {
-      return widget.imageUrl;
-    }
-    if (widget.vocabulary != null) {
-      for (var v in widget.vocabulary!) {
-        if (v is Map) {
-          final img = (v['image'] ?? v['image_path'] ?? v['img'] ?? v['photo'] ?? v['image_url'])?.toString().trim();
-          if (img != null && img.isNotEmpty && img.toLowerCase() != 'null' && img.toLowerCase() != 'undefined' && img.toLowerCase() != 'none') {
-            return img;
-          }
-        }
-      }
+        widget.imageUrl!.trim().toLowerCase() != 'undefined' &&
+        !widget.imageUrl!.contains('/uploads/vocabulary/')) {
+      return widget.imageUrl!.trim();
     }
     return null;
   }
@@ -127,7 +120,7 @@ class _FullTranslateDialogState extends State<FullTranslateDialog> {
               builder: (context) => GoogleTranslateDialog(
                 italianText: rawWord.isNotEmpty ? rawWord : cleanWord,
                 localTranslation: translation,
-                imageUrl: vocabImage ?? _resolveEffectiveImageUrl(),
+                imageUrl: vocabImage,
               ),
             );
           },
