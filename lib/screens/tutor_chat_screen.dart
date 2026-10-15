@@ -15,6 +15,7 @@ class ChatMessageItem {
   final bool isLicenseCard;
   final String? licenseKey;
   final int days;
+  final int? durationSeconds;
 
   const ChatMessageItem({
     required this.text,
@@ -25,6 +26,7 @@ class ChatMessageItem {
     this.isLicenseCard = false,
     this.licenseKey,
     this.days = 365,
+    this.durationSeconds,
   });
 }
 
@@ -205,10 +207,14 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
       String? key = item['license_key']?.toString().trim();
       int days = item['days'] != null ? (int.tryParse(item['days'].toString()) ?? 365) : 365;
 
+      int? durationSec;
+
       if (text.contains('[LICENSE_CARD:')) {
         final matchKey = RegExp(r'key=([0-9a-zA-Z_-]+)').firstMatch(text);
         final matchDays = RegExp(r'days=(\d+)').firstMatch(text);
+        final matchSec = RegExp(r'(?:seconds|sec)=(\d+)').firstMatch(text);
         if (matchKey != null) key = matchKey.group(1);
+        if (matchSec != null) durationSec = int.tryParse(matchSec.group(1) ?? '0');
         if (matchDays != null) days = int.tryParse(matchDays.group(1) ?? '365') ?? 365;
       } else if (text.contains('Chiave Licenza')) {
         final matchKey = RegExp(r'Chiave Licenza\s*([0-9a-zA-Z_-]+)', caseSensitive: false).firstMatch(text);
@@ -244,6 +250,7 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
         isLicenseCard: isCard,
         licenseKey: key,
         days: days,
+        durationSeconds: durationSec,
       ));
     }
 
@@ -1047,6 +1054,19 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     }
 
     final daysStr = days.toString();
+    final int? sec = msg.durationSeconds ?? (RegExp(r'(?:seconds|sec)=(\d+)').firstMatch(msg.text)?.group(1) != null ? int.tryParse(RegExp(r'(?:seconds|sec)=(\d+)').firstMatch(msg.text)!.group(1)!) : null);
+    String durationLabel = 'Giorni $daysStr';
+    if (sec != null && sec > 0) {
+      if (sec < 60) {
+        durationLabel = '$sec Secondi ($sec সেকেন্ড)';
+      } else if (sec < 3600) {
+        durationLabel = '${(sec / 60).round()} Minuti (${(sec / 60).round()} মিনিট)';
+      } else if (sec < 86400) {
+        durationLabel = '${(sec / 3600).round()} Ore (${(sec / 3600).round()} ঘণ্টা)';
+      } else {
+        durationLabel = 'Giorni ${(sec / 86400).round()}';
+      }
+    }
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -1078,7 +1098,7 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
               _buildFeatureRow('Live class video registarti'),
               _buildFeatureRow('Web App'),
               _buildFeatureRow('SUPPORTO'),
-              _buildFeatureRow('Giorni $daysStr'),
+              _buildFeatureRow('Durata: $durationLabel'),
               const SizedBox(height: 14),
 
               if (_isActive)
