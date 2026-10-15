@@ -141,7 +141,11 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
 
     if (widget.customQuestions != null && widget.customQuestions!.isNotEmpty) {
       List<ExamQuestion> customLoaded = [];
-      final questionsList = widget.customQuestions!;
+      List<dynamic> questionsList = List.from(widget.customQuestions!);
+      if (questionsList.length > 30) {
+        questionsList.shuffle();
+        questionsList = questionsList.take(30).toList();
+      }
 
       for (int index = 0; index < questionsList.length; index++) {
         final q = questionsList[index];
@@ -166,6 +170,10 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
           image: q.image,
           audio: q.audio,
         ));
+      }
+
+      if (customLoaded.length > 30) {
+        customLoaded = (List<ExamQuestion>.from(customLoaded)..shuffle()).take(30).toList();
       }
 
       if (mounted) {

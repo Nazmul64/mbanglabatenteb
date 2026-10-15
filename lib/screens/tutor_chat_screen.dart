@@ -283,12 +283,14 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     ApiService.setSessionContext(sessionId: _sessionId, phone: phone);
 
     if (enteredKey.isNotEmpty) {
-      await prefs.setString('app_client_license_key', enteredKey);
-      await prefs.setBool('app_client_is_active', true);
-      final expiry = DateTime.now().add(const Duration(days: 365));
-      await prefs.setString('app_client_expires_at', expiry.toIso8601String());
-      _isActive = true;
-      ApiService.activateClientLicense(licenseKey: enteredKey, days: 365, phone: phone, sessionId: _sessionId);
+      final actRes = await ApiService.activateClientLicense(
+        licenseKey: enteredKey,
+        phone: phone,
+        sessionId: _sessionId,
+      );
+      if (actRes['success'] == true) {
+        _isActive = true;
+      }
     }
 
     Map<String, dynamic>? res;
@@ -484,23 +486,7 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
       const SnackBar(content: Text('⏳ লাইসেন্স সক্রিয় করা হচ্ছে...'), backgroundColor: Colors.blue),
     );
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('app_client_is_active', true);
-    await prefs.setBool('app_client_is_verified', true);
-    final expiry = DateTime.now().add(Duration(days: days > 0 ? days : 365));
-    await prefs.setString('app_client_expires_at', expiry.toIso8601String());
-    await prefs.setInt('app_client_license_days', days);
-    if (licenseKey != null && licenseKey.isNotEmpty) {
-      await prefs.setString('app_client_license_key', licenseKey);
-      await prefs.setString('app_client_token', licenseKey);
-    }
-
-    setState(() {
-      _isActive = true;
-      _isVerified = true;
-    });
-
-    await ApiService.activateClientLicense(
+    final res = await ApiService.activateClientLicense(
       sessionId: _sessionId,
       phone: _userPhone,
       days: days,
@@ -508,14 +494,29 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     );
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('🎉 লাইসেন্স সফলভাবে সক্রিয় করা হয়েছে! ($days দিন)'),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 4),
-      ),
-    );
-    _fetchMessages();
+
+    if (res['success'] == true) {
+      setState(() {
+        _isActive = true;
+        _isVerified = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res['message']?.toString() ?? '🎉 লাইসেন্স সফলভাবে সক্রিয় করা হয়েছে!'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      _fetchMessages();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res['message']?.toString() ?? 'লাইসেন্স সক্রিয় করা সম্ভব হয়নি।'),
+          backgroundColor: Colors.redAccent,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
   }
 
   void _scrollToBottom() {

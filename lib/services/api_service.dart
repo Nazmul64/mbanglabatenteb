@@ -1433,71 +1433,59 @@ class ApiService {
   /// Check license status for user phone or session ID with persistent anti-lockout tracking
   static Future<String> checkLicenseStatus({String? userPhone, String? sessionId}) async {
     final prefs = await SharedPreferences.getInstance();
-    final bool cachedActive = prefs.getBool('app_client_is_active') ?? false;
     final String? expiresAtStr = prefs.getString('app_client_expires_at');
     DateTime? expiresAt;
     if (expiresAtStr != null && expiresAtStr.isNotEmpty) {
       expiresAt = DateTime.tryParse(expiresAtStr);
     }
 
-    // Default to 365 days if activated previously without explicit timestamp
-    if (cachedActive && expiresAt == null) {
-      expiresAt = DateTime.now().add(const Duration(days: 365));
-      await prefs.setString('app_client_expires_at', expiresAt.toIso8601String());
-    }
-
-    final bool isExpired = expiresAt != null && DateTime.now().isAfter(expiresAt);
-
-    // ANTI-LOCKOUT GUARANTEE: If active and not expired, customer is ALWAYS active!
-    // Never revoke an unexpired active license due to network issues, slow server, or transient data.
-    if (cachedActive && !isExpired) {
-      // Async non-blocking background sync to update expiry or details if server provides newer date
-      fetchClientStatus(sessionId: sessionId, phone: userPhone).then((statusMap) async {
-        if (statusMap != null) {
-          final serverExpiresAt = statusMap['expires_at']?.toString();
-          if (serverExpiresAt != null && serverExpiresAt.isNotEmpty) {
-            final serverDate = DateTime.tryParse(serverExpiresAt);
-            if (serverDate != null && (expiresAt == null || serverDate.isAfter(expiresAt))) {
-              await prefs.setString('app_client_expires_at', serverExpiresAt);
-            }
-          }
-        }
-      }).catchError((_) {});
-      return 'active';
-    }
-
-    if (isExpired) {
+    final bool isExpiredLocally = expiresAt != null && DateTime.now().isAfter(expiresAt);
+    if (isExpiredLocally) {
       await prefs.setBool('app_client_is_active', false);
-      return 'inactive';
+      return 'expired';
     }
 
-    // User is not yet active or expired, check server
-    final statusMap = await fetchClientStatus(sessionId: sessionId, phone: userPhone);
-    if (statusMap != null) {
-      final bool isFreeAccess = statusMap['protection_disabled'] == true ||
-          statusMap['free_access_mode'] == true ||
-          statusMap['qr_protection_enabled'] == false;
-
-      final serverExpiresAt = statusMap['expires_at']?.toString();
-      if (serverExpiresAt != null && serverExpiresAt.isNotEmpty) {
-        await prefs.setString('app_client_expires_at', serverExpiresAt);
-      }
-
-      final bool isActive = isFreeAccess ||
-          statusMap['is_active'] == true ||
-          statusMap['license_status'] == 'active' ||
-          statusMap['status'] == 'active' ||
-          (statusMap['success'] == true && statusMap['status'] != 'inactive');
-
-      if (isActive) {
-        await prefs.setBool('app_client_is_active', true);
-        await prefs.setBool('app_client_is_verified', true);
-        if (serverExpiresAt == null || serverExpiresAt.isEmpty) {
-          final defaultExpiry = DateTime.now().add(const Duration(days: 365));
-          await prefs.setString('app_client_expires_at', defaultExpiry.toIso8601String());
+    // Query live server status
+    try {
+      final statusMap = await fetchClientStatus(sessionId: sessionId, phone: userPhone);
+      if (statusMap != null) {
+        String? serverExpiresAt = statusMap['expires_at']?.toString();
+        if ((serverExpiresAt == null || serverExpiresAt.isEmpty) && statusMap['license'] is Map) {
+          serverExpiresAt = statusMap['license']['expires_at']?.toString();
         }
-        return 'active';
+
+        DateTime? serverDate;
+        if (serverExpiresAt != null && serverExpiresAt.isNotEmpty) {
+          await prefs.setString('app_client_expires_at', serverExpiresAt);
+          serverDate = DateTime.tryParse(serverExpiresAt);
+        }
+
+        final String sStatus = (statusMap['status'] ?? statusMap['license_status'] ?? '').toString().toLowerCase();
+        final bool serverExpired = sStatus == 'expired' || (serverDate != null && DateTime.now().isAfter(serverDate));
+
+        if (serverExpired) {
+          await prefs.setBool('app_client_is_active', false);
+          return 'expired';
+        }
+
+        final bool isActive = (sStatus == 'active' || statusMap['is_active'] == true) && !serverExpired;
+        if (isActive) {
+          await prefs.setBool('app_client_is_active', true);
+          await prefs.setBool('app_client_is_verified', true);
+          return 'active';
+        } else {
+          await prefs.setBool('app_client_is_active', false);
+          return sStatus.isNotEmpty ? sStatus : 'inactive';
+        }
       }
+    } catch (e) {
+      debugPrint('License status check network note: $e');
+    }
+
+    // Fallback: check cached active only if strictly not expired
+    final bool cachedActive = prefs.getBool('app_client_is_active') ?? false;
+    if (cachedActive && !isExpiredLocally) {
+      return 'active';
     }
 
     return 'inactive';
@@ -1886,26 +1874,12 @@ class ApiService {
   }
 
   /// Activate client license when customer clicks Attiva Licenza button in chat or enters license key
-  static Future<bool> activateClientLicense({
+  static Future<Map<String, dynamic>> activateClientLicense({
     String? sessionId,
     String? phone,
     int days = 365,
     String? licenseKey,
   }) async {
-    // 1. Immediately store in local SharedPreferences for persistent anti-lockout
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('app_client_is_active', true);
-      await prefs.setBool('app_client_is_verified', true);
-      final expiry = DateTime.now().add(Duration(days: days > 0 ? days : 365));
-      await prefs.setString('app_client_expires_at', expiry.toIso8601String());
-      await prefs.setInt('app_client_license_days', days);
-      if (licenseKey != null && licenseKey.isNotEmpty) {
-        await prefs.setString('app_client_license_key', licenseKey);
-        await prefs.setString('app_client_token', licenseKey);
-      }
-    } catch (_) {}
-
     try {
       final payload = {
         'days': days,
@@ -1915,22 +1889,83 @@ class ApiService {
         if (licenseKey != null && licenseKey.isNotEmpty) 'key': licenseKey,
       };
 
-      final response = await _postWithFallback('/client/activate', payload) ??
-          await _postWithFallback('/license/activate', payload);
+      final response = await _postWithFallback('/license/activate', payload) ??
+          await _postWithFallback('/client/activate', payload);
+
       if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
         final decoded = json.decode(response.body);
-        if (decoded is Map && (decoded['success'] == true || decoded['status'] == 'success')) {
-          if (decoded['expires_at'] != null) {
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setString('app_client_expires_at', decoded['expires_at'].toString());
+        if (decoded is Map && (decoded['success'] == true || decoded['status'] == 'active' || decoded['status'] == 'success')) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('app_client_is_active', true);
+          await prefs.setBool('app_client_is_verified', true);
+          if (licenseKey != null && licenseKey.isNotEmpty) {
+            await prefs.setString('app_client_license_key', licenseKey);
+            await prefs.setString('app_client_token', licenseKey);
           }
-          return true;
+
+          String? serverExpiresAt = decoded['expires_at']?.toString();
+          if ((serverExpiresAt == null || serverExpiresAt.isEmpty) && decoded['license'] is Map) {
+            serverExpiresAt = decoded['license']['expires_at']?.toString();
+          }
+
+          if (serverExpiresAt != null && serverExpiresAt.isNotEmpty) {
+            await prefs.setString('app_client_expires_at', serverExpiresAt);
+          } else {
+            final expiry = DateTime.now().add(Duration(days: days > 0 ? days : 365));
+            await prefs.setString('app_client_expires_at', expiry.toIso8601String());
+          }
+
+          return {
+            'success': true,
+            'message': decoded['message'] ?? 'লাইসেন্স সফলভাবে সক্রিয় করা হয়েছে!',
+            'expires_at': serverExpiresAt,
+          };
+        } else {
+          return {
+            'success': false,
+            'message': (decoded is Map && decoded['message'] != null)
+                ? decoded['message'].toString()
+                : 'লাইসেন্স সক্রিয় করা সম্ভব হয়নি। সঠিক কি দিন।',
+          };
         }
+      } else {
+        String msg = 'লাইসেন্স কি পাওয়া যায়নি বা ভুল!';
+        if (response != null && response.body.isNotEmpty) {
+          try {
+            final decoded = json.decode(response.body);
+            if (decoded is Map && decoded['message'] != null) {
+              msg = decoded['message'].toString();
+            }
+          } catch (_) {}
+        }
+        return {'success': false, 'message': msg};
       }
     } catch (e) {
       debugPrint('Error activating client license on server: $e');
+      return {'success': false, 'message': 'সার্ভার সংযোগে সমস্যা হয়েছে: $e'};
     }
-    return true;
+  }
+
+  /// POST /api/v1/user-mcq-results/log (Batch logging of multiple MCQ results in one atomic request)
+  static Future<bool> logUserMcqBatch(List<Map<String, dynamic>> results, {String? phone, String? sessionId}) async {
+    try {
+      final authParams = await _getUserAuthParams();
+      final payload = {
+        'results': results,
+        'data': results,
+        ...authParams,
+        if (phone != null && phone.isNotEmpty) 'phone': phone,
+        if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
+      };
+
+      final response = await _postWithFallback('/user-mcq-results/log', payload) ??
+          await _postWithFallback('/user-mcq-results', payload);
+      invalidateUserDataCache();
+      return response != null && (response.statusCode == 200 || response.statusCode == 201);
+    } catch (e) {
+      debugPrint('Error logging user MCQ batch: $e');
+      return false;
+    }
   }
 
   // ─────────────────────────────────────────────────────

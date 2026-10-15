@@ -294,6 +294,11 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
         return;
       }
 
+      if (allQuestions.length > 30) {
+        allQuestions.shuffle();
+        allQuestions = allQuestions.take(30).toList();
+      }
+
       final title = selectedSubs.length == 1
           ? '$_selectedCategory - ${selectedSubs.first.title}'
           : '$_selectedCategory - Schede Selezionate (${selectedSubs.length})';

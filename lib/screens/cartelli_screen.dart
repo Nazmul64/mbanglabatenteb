@@ -427,11 +427,16 @@ class _CartelliScreenState extends State<CartelliScreen> {
       );
     }).toList();
 
+    var finalMcqList = mcqList;
+    if (finalMcqList.length > 30) {
+      finalMcqList = (List<McqQuestion>.from(finalMcqList)..shuffle()).take(30).toList();
+    }
+
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => ExamSimulationScreen(
-          customQuestions: mcqList,
+          customQuestions: finalMcqList,
           examTitle: _selectedCapitolo,
         ),
       ),

@@ -191,6 +191,11 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
         return;
       }
 
+      if (allQuestions.length > 30) {
+        allQuestions.shuffle();
+        allQuestions = allQuestions.take(30).toList();
+      }
+
       Navigator.push(
         context,
         MaterialPageRoute(

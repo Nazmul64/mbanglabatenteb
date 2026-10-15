@@ -100,7 +100,6 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   Future<void> _navigateToWithLoader(Widget targetScreen, {String title = 'পেজ লোড হচ্ছে...', bool isProtected = true}) async {
     if (isProtected) {
       final prefs = await SharedPreferences.getInstance();
-      final bool isActiveCached = prefs.getBool('app_client_is_active') ?? false;
       final phone = prefs.getString('app_client_phone');
       final sessionId = prefs.getString('app_client_session_id');
 
@@ -110,26 +109,19 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
         expiresAt = DateTime.tryParse(expiresAtStr);
       }
 
-      // If active previously, ensure a 365-day expiry is present
-      if (isActiveCached && expiresAt == null) {
-        expiresAt = DateTime.now().add(const Duration(days: 365));
-        await prefs.setString('app_client_expires_at', expiresAt.toIso8601String());
+      final bool isExpiredLocally = expiresAt != null && DateTime.now().isAfter(expiresAt);
+      if (isExpiredLocally) {
+        await prefs.setBool('app_client_is_active', false);
+        if (mounted) _showLicenseRequiredDialog(isExpired: true);
+        return;
       }
 
-      final bool isExpired = expiresAt != null && DateTime.now().isAfter(expiresAt);
-
-      if (!isActiveCached || isExpired) {
-        // If not yet active or expired, check server
-        final currentStatus = await ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId);
-        final bool active = (currentStatus == 'active');
-        if (!active) {
-          if (mounted) _showLicenseRequiredDialog();
-          return;
-        }
-      } else {
-        // Active and unexpired: 100% instant zero-blocking entry!
-        // Background check never locks out user holding valid unexpired license
-        ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId).catchError((_) {});
+      // Check server license status
+      final currentStatus = await ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId);
+      final bool active = (currentStatus == 'active');
+      if (!active) {
+        if (mounted) _showLicenseRequiredDialog(isExpired: currentStatus == 'expired');
+        return;
       }
     }
 
@@ -167,7 +159,7 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
             TextField(
               controller: keyController,
               decoration: InputDecoration(
-                labelText: 'License Key (যেমন: 828996)',
+                labelText: 'License Key (যেমন: 828996 বা LIC-...)',
                 prefixIcon: const Icon(Icons.key_rounded, color: Color(0xFF2563EB)),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -184,24 +176,34 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
             onPressed: () async {
               final key = keyController.text.trim();
               if (key.isEmpty) return;
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setString('app_client_license_key', key);
-              await prefs.setBool('app_client_is_active', true);
-              await prefs.setBool('app_client_is_verified', true);
-              final expiry = DateTime.now().add(const Duration(days: 365));
-              await prefs.setString('app_client_expires_at', expiry.toIso8601String());
 
+              final prefs = await SharedPreferences.getInstance();
               final phone = prefs.getString('app_client_phone');
               final sessionId = prefs.getString('app_client_session_id');
-              ApiService.activateClientLicense(licenseKey: key, days: 365, phone: phone, sessionId: sessionId);
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('⏳ লাইসেন্স কি যাচাই করা হচ্ছে...'), duration: Duration(seconds: 2)),
+              );
+
+              final res = await ApiService.activateClientLicense(licenseKey: key, phone: phone, sessionId: sessionId);
 
               if (ctx.mounted) Navigator.pop(ctx);
-              if (mounted) {
+              if (!mounted) return;
+
+              if (res['success'] == true) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('🎉 লাইসেন্স সফলভাবে অ্যাক্টিভ হয়েছে! সকল ফিচার উন্মুক্ত।'),
-                    backgroundColor: Color(0xFF16A34A),
-                    duration: Duration(seconds: 4),
+                  SnackBar(
+                    content: Text(res['message']?.toString() ?? '🎉 লাইসেন্স সফলভাবে অ্যাক্টিভ হয়েছে! সকল ফিচার উন্মুক্ত।'),
+                    backgroundColor: const Color(0xFF16A34A),
+                    duration: const Duration(seconds: 4),
+                  ),
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(res['message']?.toString() ?? 'ভুল বা মেয়াদোত্তীর্ণ লাইসেন্স কি! সঠিক কি দিয়ে পুনরায় চেষ্টা করুন।'),
+                    backgroundColor: Colors.redAccent,
+                    duration: const Duration(seconds: 4),
                   ),
                 );
               }
@@ -218,21 +220,25 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
     );
   }
 
-  void _showLicenseRequiredDialog() {
+  void _showLicenseRequiredDialog({bool isExpired = false}) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.lock_rounded, color: Colors.amber, size: 28),
-            SizedBox(width: 10),
-            Text('লাইসেন্স আবশ্যক', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+            Icon(isExpired ? Icons.timer_off_rounded : Icons.lock_rounded,
+                 color: isExpired ? Colors.redAccent : Colors.amber, size: 28),
+            const SizedBox(width: 10),
+            Text(isExpired ? 'লাইসেন্সের মেয়াদ শেষ' : 'লাইসেন্স আবশ্যক',
+                 style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
           ],
         ),
-        content: const Text(
-          'এই ফিচারটি ব্যবহার করতে একটি সক্রিয় লাইসেন্স আবশ্যক। আপনি অ্যাডমিন থেকে লাইসেন্স কি পেয়ে থাকলে সরাসরি অ্যাক্টিভ করতে পারেন অথবা চ্যাটে যোগাযোগ করতে পারেন।',
-          style: TextStyle(fontSize: 13.5, height: 1.45, color: Colors.black87),
+        content: Text(
+          isExpired
+              ? 'আপনার লাইসেন্সটির মেয়াদ শেষ হয়েছে। অ্যাপের প্র্যাকটিস টেস্ট ও সকল প্রিমিয়াম ফিচার ব্যবহার করতে নতুন লাইসেন্স কি প্রবেশ করান অথবা অ্যাডমিনের সাথে যোগাযোগ করুন।'
+              : 'এই ফিচারটি ব্যবহার করতে একটি সক্রিয় লাইসেন্স আবশ্যক। আপনি অ্যাডমিন থেকে লাইসেন্স কি পেয়ে থাকলে সরাসরি অ্যাক্টিভ করতে পারেন অথবা চ্যাটে যোগাযোগ করতে পারেন।',
+          style: const TextStyle(fontSize: 13.5, height: 1.45, color: Colors.black87),
         ),
         actions: [
           TextButton(

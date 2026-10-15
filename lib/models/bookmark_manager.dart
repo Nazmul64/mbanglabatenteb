@@ -422,6 +422,7 @@ class BookmarkManager {
     bool isCorrect, {
     String? userAnswer,
     String? type,
+    bool syncToServer = true,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final targetKey = _cleanKey(question.italian);
@@ -467,13 +468,15 @@ class BookmarkManager {
     }
     await prefs.setStringList(key, targetList);
 
-    // 3. Log to API backend database
-    try {
-      final answer = userAnswer ?? (question.isVero ? (isCorrect ? 'V' : 'F') : (isCorrect ? 'F' : 'V'));
-      final qType = type ?? (question.chapterName.toLowerCase().contains('cartell') ? 'cartelli' : 'argomenti');
-      await ApiService.logUserMcqResult(question.id, isCorrect, answer, type: qType);
-    } catch (e) {
-      debugPrint('Error logging user MCQ result to server: $e');
+    // 3. Log to API backend database (single item)
+    if (syncToServer) {
+      try {
+        final answer = userAnswer ?? (question.isVero ? (isCorrect ? 'V' : 'F') : (isCorrect ? 'F' : 'V'));
+        final qType = type ?? (question.chapterName.toLowerCase().contains('cartell') ? 'cartelli' : 'argomenti');
+        await ApiService.logUserMcqResult(question.id, isCorrect, answer, type: qType);
+      } catch (e) {
+        debugPrint('Error logging user MCQ result to server: $e');
+      }
     }
   }
 
@@ -516,11 +519,13 @@ class BookmarkManager {
           ? 'cartelli'
           : 'argomenti';
 
+      // Update local storage instantly without 30 separate network requests
       await recordQuestionResult(
         mcq,
         item.isCorrect,
         userAnswer: userAnswerStr,
         type: qType,
+        syncToServer: false,
       );
 
       loggedAnswers.add({
@@ -549,10 +554,12 @@ class BookmarkManager {
           'duration_seconds': timeSpentSeconds ?? 600,
           'time_spent_seconds': timeSpentSeconds ?? 600,
           'answers': loggedAnswers,
+          'results': loggedAnswers,
         };
 
         await ApiService.submitSchedaEsame(payload);
         await ApiService.submitTestResult(payload);
+        await ApiService.logUserMcqBatch(loggedAnswers, sessionId: sessionId, phone: phone);
       } catch (e) {
         debugPrint('Error submitting exam results to server: $e');
       }
