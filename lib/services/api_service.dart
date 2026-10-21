@@ -113,20 +113,6 @@ class ApiService {
     }
   }
 
-  /// Silent background fetch to update Local Storage without blocking user / screens
-  static void _silentBackgroundRefresh(String endpoint, Map<String, String> queryParameters, Map<String, String> headers, String cacheKey) {
-    Future.microtask(() async {
-      try {
-        final base = _resolvedBaseUrl ?? liveProductionUrl;
-        final uri = Uri.parse('$base$endpoint').replace(queryParameters: queryParameters.isNotEmpty ? queryParameters : null);
-        final resp = await http.get(uri, headers: headers).timeout(const Duration(seconds: 4));
-        if (resp.statusCode == 200 && resp.body.isNotEmpty) {
-          _apiResponseCache[cacheKey] = resp;
-          _saveToLocalStorage(cacheKey, resp.body);
-        }
-      } catch (_) {}
-    });
-  }
 
   /// Initialize server configuration by probing live URLs, loading Local Storage, and fetching active settings
   static Future<void> initServerConfig() async {
@@ -190,6 +176,9 @@ class ApiService {
     final headers = <String, String>{
       'Accept': 'application/json',
       'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
       'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 MBanglaPatenteApp/2.0',
       'X-Requested-With': 'com.mbanglapatenteb.app',
     };
@@ -284,7 +273,7 @@ class ApiService {
         key.startsWith('/mcq-results'));
   }
 
-  /// Helper to perform HTTP GET with dynamic candidate URL resolution & fallback (ultra-fast sub-second caching)
+  /// Helper to perform HTTP GET with dynamic candidate URL resolution & fallback (Network-First with offline cache fallback)
   static Future<http.Response?> _getWithFallback(String endpoint, {Map<String, String>? queryParameters, bool useCache = true}) async {
     final authParams = await getUserAuthParams();
     final effectiveParams = queryParameters != null ? Map<String, String>.from(queryParameters) : <String, String>{};
@@ -299,32 +288,18 @@ class ApiService {
 
     final cacheKey = '$endpoint?${effectiveParams.entries.map((e) => '${e.key}=${e.value}').join('&')}';
     
-    // 1. INSTANT LOCAL STORAGE RETURN (0ms latency, zero-loading)
-    if (useCache) {
-      if (_apiResponseCache.containsKey(cacheKey)) {
-        _silentBackgroundRefresh(endpoint, effectiveParams, defaultHeaders, cacheKey);
-        return _apiResponseCache[cacheKey];
-      }
-      
-      // Check SharedPreferences if not already in memory
-      if (_prefs != null) {
-        final diskBody = _prefs!.getString('offline_cache_$cacheKey');
-        if (diskBody != null && diskBody.isNotEmpty) {
-          final resp = http.Response(diskBody, 200, headers: {'content-type': 'application/json'});
-          _apiResponseCache[cacheKey] = resp;
-          _silentBackgroundRefresh(endpoint, effectiveParams, defaultHeaders, cacheKey);
-          return resp;
-        }
-      }
-    }
+    // Add cache-busting timestamp param to ensure completely fresh live data from server
+    final networkParams = Map<String, String>.from(effectiveParams);
+    networkParams['_t'] = DateTime.now().millisecondsSinceEpoch.toString();
 
     final headers = defaultHeaders;
 
+    // 1. NETWORK-FIRST: Try primary resolved URL first with 4s timeout
     if (_resolvedBaseUrl != null) {
       try {
-        final uri = Uri.parse('$_resolvedBaseUrl$endpoint').replace(queryParameters: effectiveParams.isNotEmpty ? effectiveParams : null);
-        final response = await http.get(uri, headers: headers).timeout(const Duration(milliseconds: 15000));
-        if (response.statusCode == 200) {
+        final uri = Uri.parse('$_resolvedBaseUrl$endpoint').replace(queryParameters: networkParams.isNotEmpty ? networkParams : null);
+        final response = await http.get(uri, headers: headers).timeout(const Duration(milliseconds: 4000));
+        if (response.statusCode == 200 && response.body.isNotEmpty) {
           if (useCache) {
             _apiResponseCache[cacheKey] = response;
             _saveToLocalStorage(cacheKey, response.body);
@@ -334,14 +309,14 @@ class ApiService {
       } catch (_) {}
     }
 
-    // Fast parallel race across all candidate base URLs
+    // 2. NETWORK-FIRST FALLBACK: Fast parallel race across candidate base URLs
     final completer = Completer<http.Response?>();
     int pending = candidateBaseUrls.length;
 
     for (final base in candidateBaseUrls) {
-      final uri = Uri.parse('$base$endpoint').replace(queryParameters: effectiveParams.isNotEmpty ? effectiveParams : null);
-      http.get(uri, headers: headers).timeout(const Duration(milliseconds: 15000)).then((resp) {
-        if (resp.statusCode == 200 && !completer.isCompleted) {
+      final uri = Uri.parse('$base$endpoint').replace(queryParameters: networkParams.isNotEmpty ? networkParams : null);
+      http.get(uri, headers: headers).timeout(const Duration(milliseconds: 4000)).then((resp) {
+        if (resp.statusCode == 200 && resp.body.isNotEmpty && !completer.isCompleted) {
           _resolvedBaseUrl = base;
           SharedPreferences.getInstance().then((p) => p.setString('app_cached_base_url', base)).catchError((_) => false);
           if (useCache) {
@@ -359,7 +334,27 @@ class ApiService {
       });
     }
 
-    return completer.future;
+    final networkResult = await completer.future;
+    if (networkResult != null) {
+      return networkResult;
+    }
+
+    // 3. OFFLINE FALLBACK: If network is offline or unreachable, serve from cache
+    if (useCache) {
+      if (_apiResponseCache.containsKey(cacheKey)) {
+        return _apiResponseCache[cacheKey];
+      }
+      if (_prefs != null) {
+        final diskBody = _prefs!.getString('offline_cache_$cacheKey');
+        if (diskBody != null && diskBody.isNotEmpty) {
+          final resp = http.Response(diskBody, 200, headers: {'content-type': 'application/json'});
+          _apiResponseCache[cacheKey] = resp;
+          return resp;
+        }
+      }
+    }
+
+    return null;
   }
 
   /// Helper to perform HTTP POST with dynamic candidate URL resolution & fallback
