@@ -145,28 +145,39 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
       }
 
       final bool isExpiredLocally = expiresAt != null && DateTime.now().isAfter(expiresAt);
-      if (isExpiredLocally) {
-        prefs.setBool('app_client_is_active', false);
-        if (mounted) _showLicenseRequiredDialog(isExpired: true);
-        return;
-      }
 
-      if (!isActive || isUninstalled) {
-        if (mounted) _showLicenseRequiredDialog(isExpired: false);
-        return;
-      }
+      if (isExpiredLocally || !isActive || isUninstalled) {
+        // Query live server status to check if admin recently renewed or activated the user
+        final phone = prefs.getString('app_client_phone');
+        final sessionId = prefs.getString('app_client_session_id');
+        final liveStatus = await ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId);
 
-      // Check server license status in the background without blocking screen navigation (0ms instant!)
-      final phone = prefs.getString('app_client_phone');
-      final sessionId = prefs.getString('app_client_session_id');
-      ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId).then((currentStatus) {
-        if (currentStatus == 'deleted') {
-          prefs.setBool('app_client_is_deleted', true);
+        if (liveStatus == 'active') {
+          // Successfully re-unlocked by admin! Continue navigation below.
+        } else if (liveStatus == 'deleted') {
+          if (mounted) _showUserDeletedDialog();
+          return;
+        } else if (liveStatus == 'expired' || isExpiredLocally) {
           prefs.setBool('app_client_is_active', false);
-        } else if (currentStatus == 'expired' || currentStatus == 'revoked') {
-          prefs.setBool('app_client_is_active', false);
+          if (mounted) _showLicenseRequiredDialog(isExpired: true);
+          return;
+        } else {
+          if (mounted) _showLicenseRequiredDialog(isExpired: false);
+          return;
         }
-      }).catchError((_) {});
+      } else {
+        // Check server license status in the background without blocking screen navigation (0ms instant!)
+        final phone = prefs.getString('app_client_phone');
+        final sessionId = prefs.getString('app_client_session_id');
+        ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId).then((currentStatus) {
+          if (currentStatus == 'deleted') {
+            prefs.setBool('app_client_is_deleted', true);
+            prefs.setBool('app_client_is_active', false);
+          } else if (currentStatus == 'expired' || currentStatus == 'revoked') {
+            prefs.setBool('app_client_is_active', false);
+          }
+        }).catchError((_) {});
+      }
     }
 
     if (!mounted) return;

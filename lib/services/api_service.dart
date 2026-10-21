@@ -323,7 +323,7 @@ class ApiService {
     if (_resolvedBaseUrl != null) {
       try {
         final uri = Uri.parse('$_resolvedBaseUrl$endpoint').replace(queryParameters: effectiveParams.isNotEmpty ? effectiveParams : null);
-        final response = await http.get(uri, headers: headers).timeout(const Duration(milliseconds: 3500));
+        final response = await http.get(uri, headers: headers).timeout(const Duration(milliseconds: 15000));
         if (response.statusCode == 200) {
           if (useCache) {
             _apiResponseCache[cacheKey] = response;
@@ -340,7 +340,7 @@ class ApiService {
 
     for (final base in candidateBaseUrls) {
       final uri = Uri.parse('$base$endpoint').replace(queryParameters: effectiveParams.isNotEmpty ? effectiveParams : null);
-      http.get(uri, headers: headers).timeout(const Duration(milliseconds: 3500)).then((resp) {
+      http.get(uri, headers: headers).timeout(const Duration(milliseconds: 15000)).then((resp) {
         if (resp.statusCode == 200 && !completer.isCompleted) {
           _resolvedBaseUrl = base;
           SharedPreferences.getInstance().then((p) => p.setString('app_cached_base_url', base)).catchError((_) => false);
@@ -382,7 +382,7 @@ class ApiService {
         final uri = Uri.parse('$_resolvedBaseUrl$endpoint');
         final response = await http
             .post(uri, headers: headers, body: json.encode(effectiveBody))
-            .timeout(const Duration(milliseconds: 4000));
+            .timeout(const Duration(milliseconds: 15000));
         if (response.statusCode == 200 || response.statusCode == 201) return response;
       } catch (_) {}
     }
@@ -393,7 +393,7 @@ class ApiService {
 
     for (final base in candidateBaseUrls) {
       final uri = Uri.parse('$base$endpoint');
-      http.post(uri, headers: headers, body: json.encode(effectiveBody)).timeout(const Duration(milliseconds: 4000)).then((resp) {
+      http.post(uri, headers: headers, body: json.encode(effectiveBody)).timeout(const Duration(milliseconds: 15000)).then((resp) {
         if ((resp.statusCode == 200 || resp.statusCode == 201) && !completer.isCompleted) {
           _resolvedBaseUrl = base;
           SharedPreferences.getInstance().then((p) => p.setString('app_cached_base_url', base)).catchError((_) => false);
@@ -418,7 +418,7 @@ class ApiService {
     if (_resolvedBaseUrl != null) {
       try {
         final uri = Uri.parse('$_resolvedBaseUrl$endpoint');
-        final response = await http.delete(uri, headers: headers).timeout(const Duration(milliseconds: 3500));
+        final response = await http.delete(uri, headers: headers).timeout(const Duration(milliseconds: 15000));
         if (response.statusCode == 200 || response.statusCode == 204) return response;
       } catch (_) {}
     }
@@ -426,7 +426,7 @@ class ApiService {
     for (final base in candidateBaseUrls) {
       try {
         final uri = Uri.parse('$base$endpoint');
-        final response = await http.delete(uri, headers: headers).timeout(const Duration(milliseconds: 3500));
+        final response = await http.delete(uri, headers: headers).timeout(const Duration(milliseconds: 15000));
         if (response.statusCode == 200 || response.statusCode == 204) {
           _resolvedBaseUrl = base;
           return response;
@@ -1472,19 +1472,8 @@ class ApiService {
   /// Check license status for user phone or session ID with persistent anti-lockout tracking
   static Future<String> checkLicenseStatus({String? userPhone, String? sessionId}) async {
     final prefs = await SharedPreferences.getInstance();
-    final String? expiresAtStr = prefs.getString('app_client_expires_at');
-    DateTime? expiresAt;
-    if (expiresAtStr != null && expiresAtStr.isNotEmpty) {
-      expiresAt = DateTime.tryParse(expiresAtStr);
-    }
 
-    final bool isExpiredLocally = expiresAt != null && DateTime.now().isAfter(expiresAt);
-    if (isExpiredLocally) {
-      await prefs.setBool('app_client_is_active', false);
-      return 'expired';
-    }
-
-    // Query live server status
+    // Query live server status FIRST so Admin updates/renewals immediately unlock the user!
     try {
       final statusMap = await fetchClientStatus(sessionId: sessionId, phone: userPhone);
       if (statusMap != null) {
@@ -1542,9 +1531,20 @@ class ApiService {
     final bool cachedDeleted = prefs.getBool('app_client_is_deleted') ?? false;
     if (cachedDeleted) return 'deleted';
 
+    final String? expiresAtStr = prefs.getString('app_client_expires_at');
+    DateTime? expiresAt;
+    if (expiresAtStr != null && expiresAtStr.isNotEmpty) {
+      expiresAt = DateTime.tryParse(expiresAtStr);
+    }
+    final bool isExpiredLocally = expiresAt != null && DateTime.now().isAfter(expiresAt);
+    if (isExpiredLocally) {
+      await prefs.setBool('app_client_is_active', false);
+      return 'expired';
+    }
+
     final bool cachedActive = prefs.getBool('app_client_is_active') ?? false;
     final bool cachedUninstalled = prefs.getBool('app_client_is_uninstalled') ?? false;
-    if (cachedActive && !cachedUninstalled && !isExpiredLocally) {
+    if (cachedActive && !cachedUninstalled) {
       return 'active';
     }
 

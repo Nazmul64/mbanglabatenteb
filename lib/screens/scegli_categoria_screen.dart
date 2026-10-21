@@ -57,9 +57,9 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
         _isLoading = true;
       });
     }
-    final apiChapters = await ApiService.fetchChapters();
-    if (mounted) {
-      if (apiChapters.isNotEmpty) {
+    try {
+      final apiChapters = await ApiService.fetchChapters();
+      if (mounted && apiChapters.isNotEmpty) {
         final parsed = apiChapters.map((ch) {
           final id = ch['id'] is int ? ch['id'] as int : int.tryParse('${ch['id']}') ?? 1;
           final titleStr = (ch['name'] ?? ch['title'] ?? 'Capitolo $id').toString();
@@ -90,15 +90,15 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
         _cachedCategories = List.from(parsed);
         setState(() {
           _categories = parsed;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading chapters: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
           _isLoading = false;
         });
-      } else {
-        if (_categories.isEmpty) {
-          setState(() {
-            _categories = [];
-            _isLoading = false;
-          });
-        }
       }
     }
   }

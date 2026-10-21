@@ -81,46 +81,52 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
       });
     }
 
-    final apiChapters = await ApiService.fetchChapters();
-    if (mounted) {
-      if (apiChapters.isNotEmpty) {
-        _categories = apiChapters.map((ch) {
-          final id = ch['id'] is int ? ch['id'] as int : int.tryParse('${ch['id']}') ?? 1;
-          final chapNum = ch['chapter_number'] ?? id;
-          final name = (ch['name'] ?? ch['title'] ?? 'Capitolo $id').toString();
-          final key = 'Capitolo $chapNum) $name';
-          _chapterIdMap[key] = id;
-          return key;
-        }).toList();
+    try {
+      final apiChapters = await ApiService.fetchChapters();
+      if (mounted) {
+        if (apiChapters.isNotEmpty) {
+          _categories = apiChapters.map((ch) {
+            final id = ch['id'] is int ? ch['id'] as int : int.tryParse('${ch['id']}') ?? 1;
+            final chapNum = ch['chapter_number'] ?? id;
+            final name = (ch['name'] ?? ch['title'] ?? 'Capitolo $id').toString();
+            final key = 'Capitolo $chapNum) $name';
+            _chapterIdMap[key] = id;
+            return key;
+          }).toList();
 
-        _cachedCategories = List.from(_categories);
-        _cachedChapterIdMap.addAll(_chapterIdMap);
+          _cachedCategories = List.from(_categories);
+          _cachedChapterIdMap.addAll(_chapterIdMap);
 
-        if (widget.initialChapterId != null) {
-          final found = apiChapters.firstWhere(
-            (c) => c['id'] == widget.initialChapterId || c['chapter_number'] == widget.initialChapterId,
-            orElse: () => apiChapters.first,
-          );
-          final id = found['id'] is int ? found['id'] as int : int.tryParse('${found['id']}') ?? 1;
-          final chapNum = found['chapter_number'] ?? id;
-          final name = (found['name'] ?? found['title'] ?? 'Capitolo $id').toString();
-          _selectedCategory = 'Capitolo $chapNum) $name';
-          _chapterIdMap[_selectedCategory] = id;
-        } else if (!_categories.contains(_selectedCategory)) {
-          _selectedCategory = _categories.first;
+          if (widget.initialChapterId != null) {
+            final found = apiChapters.firstWhere(
+              (c) => c['id'] == widget.initialChapterId || c['chapter_number'] == widget.initialChapterId,
+              orElse: () => apiChapters.first,
+            );
+            final id = found['id'] is int ? found['id'] as int : int.tryParse('${found['id']}') ?? 1;
+            final chapNum = found['chapter_number'] ?? id;
+            final name = (found['name'] ?? found['title'] ?? 'Capitolo $id').toString();
+            _selectedCategory = 'Capitolo $chapNum) $name';
+            _chapterIdMap[_selectedCategory] = id;
+          } else if (!_categories.contains(_selectedCategory)) {
+            _selectedCategory = _categories.first;
+          }
+        } else if (_categories.isEmpty) {
+          _categories = [];
+          _selectedCategory = 'Nessun Capitolo Trovato';
         }
-      } else if (_categories.isEmpty) {
-        _categories = [];
-        _selectedCategory = 'Nessun Capitolo Trovato';
       }
+    } catch (e) {
+      debugPrint('Error loading initial chapters: $e');
     }
 
     if (_categories.isNotEmpty) {
       await _loadApiPagesForSelectedCategory();
     } else {
-      setState(() {
-        _isLoadingPages = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoadingPages = false;
+        });
+      }
     }
   }
 
@@ -143,42 +149,51 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
       _isSelectActive = false;
     }
 
-    final apiPages = await ApiService.fetchChapterPages(chapterId);
-    if (mounted) {
-      final List<SubTopic> loadedList = [];
-      if (apiPages.isNotEmpty) {
-        for (var i = 0; i < apiPages.length; i++) {
-          final p = apiPages[i];
-          final pId = p['id'] is int ? p['id'] as int : int.tryParse('${p['id']}') ?? (i + 1);
-          final titleStr = (p['title'] ?? p['name'] ?? 'Pagina ${i + 1}').toString();
-          final total = p['questions_count'] ?? p['question_count'] ?? p['totale'] ?? 0;
-          final pageNum = p['sort_order'] ?? p['page_number'] ?? (i + 1);
-          String imgPath = '';
-          for (final k in ['image', 'image_path', 'cover_image', 'image_url', 'img', 'photo', 'page_image', 'thumbnail']) {
-            final val = p[k]?.toString().trim();
-            if (val != null && val.isNotEmpty && val.toLowerCase() != 'null' && val.toLowerCase() != 'undefined') {
-              imgPath = val;
-              break;
+    try {
+      final apiPages = await ApiService.fetchChapterPages(chapterId);
+      if (mounted) {
+        final List<SubTopic> loadedList = [];
+        if (apiPages.isNotEmpty) {
+          for (var i = 0; i < apiPages.length; i++) {
+            final p = apiPages[i];
+            final pId = p['id'] is int ? p['id'] as int : int.tryParse('${p['id']}') ?? (i + 1);
+            final titleStr = (p['title'] ?? p['name'] ?? 'Pagina ${i + 1}').toString();
+            final total = p['questions_count'] ?? p['question_count'] ?? p['totale'] ?? 0;
+            final pageNum = p['sort_order'] ?? p['page_number'] ?? (i + 1);
+            String imgPath = '';
+            for (final k in ['image', 'image_path', 'cover_image', 'image_url', 'img', 'photo', 'page_image', 'thumbnail']) {
+              final val = p[k]?.toString().trim();
+              if (val != null && val.isNotEmpty && val.toLowerCase() != 'null' && val.toLowerCase() != 'undefined') {
+                imgPath = val;
+                break;
+              }
             }
+            final fullImgUrl = ApiService.formatImageUrl(imgPath);
+            loadedList.add(SubTopic(
+              pageId: pId,
+              title: '$pageNum) $titleStr',
+              image: fullImgUrl.isNotEmpty ? fullImgUrl : null,
+              total: total > 0 ? total : 0,
+              correct: p['corrette'] ?? 0,
+              errors: p['errori'] ?? 0,
+            ));
           }
-          final fullImgUrl = ApiService.formatImageUrl(imgPath);
-          loadedList.add(SubTopic(
-            pageId: pId,
-            title: '$pageNum) $titleStr',
-            image: fullImgUrl.isNotEmpty ? fullImgUrl : null,
-            total: total > 0 ? total : 0,
-            correct: p['corrette'] ?? 0,
-            errors: p['errori'] ?? 0,
-          ));
         }
-      }
-      setState(() {
-        _subtopicsCache[_selectedCategory] = loadedList;
-        _isLoadingPages = false;
-      });
+        setState(() {
+          _subtopicsCache[_selectedCategory] = loadedList;
+        });
 
-      // Background fetch missing page images if not returned in list
-      _fetchMissingImagesForSubtopics(loadedList, _selectedCategory);
+        // Background fetch missing page images if not returned in list
+        _fetchMissingImagesForSubtopics(loadedList, _selectedCategory);
+      }
+    } catch (e) {
+      debugPrint('Error loading api pages: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingPages = false;
+        });
+      }
     }
   }
 
