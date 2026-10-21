@@ -41,7 +41,6 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
   final TextEditingController _firstNameController = TextEditingController();
   final TextEditingController _lastNameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _licenseKeyController = TextEditingController();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final ImagePicker _picker = ImagePicker();
@@ -71,7 +70,6 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     _firstNameController.dispose();
     _lastNameController.dispose();
     _phoneController.dispose();
-    _licenseKeyController.dispose();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -114,10 +112,6 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     _firstNameController.text = firstName;
     _lastNameController.text = lastName;
     _phoneController.text = _userPhone;
-    final savedKey = prefs.getString('app_client_license_key');
-    if (savedKey != null && savedKey.isNotEmpty) {
-      _licenseKeyController.text = savedKey;
-    }
 
     final bool isAlreadyVerified = (prefs.getBool('app_client_is_verified') == true) ||
         (prefs.getBool('app_client_is_active') == true) ||
@@ -129,6 +123,10 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
       _isVerified = isAlreadyVerified;
       _isInitialLoading = false;
     });
+
+    if (isAlreadyVerified) {
+      _startChatPolling();
+    }
 
     // Refresh status from server asynchronously in the background without blocking UI
     ApiService.fetchClientStatus(sessionId: _sessionId, phone: _userPhone).then((statusData) async {
@@ -180,7 +178,7 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
   void _startChatPolling() {
     _fetchMessages();
     _chatPollingTimer?.cancel();
-    _chatPollingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+    _chatPollingTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       _fetchMessages();
     });
   }
@@ -267,8 +265,6 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     final fName = _firstNameController.text.trim();
     final lName = _lastNameController.text.trim();
     final phone = _phoneController.text.trim();
-    final enteredKey = _licenseKeyController.text.trim();
-
     if (fName.isEmpty || lName.isEmpty || phone.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('অনুগ্রহ করে আপনার নাম ও ফোন নম্বর দিন'), backgroundColor: Colors.red),
@@ -276,93 +272,108 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
       return;
     }
 
-    setState(() => _isSubmittingVerification = true);
-
     final prefs = await SharedPreferences.getInstance();
+    final bool alreadyActive = (prefs.getBool('app_client_is_active') == true) || _isActive;
+    if (alreadyActive) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('You already have an active license key. If you want to update or renew your license, please contact Admin via Support Chat.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 5),
+          ),
+        );
+        setState(() {
+          _isVerified = true;
+        });
+      }
+      return;
+    }
+
+    if (_sessionId.isEmpty) {
+      _sessionId = 'app_${DateTime.now().millisecondsSinceEpoch}';
+    }
+
+    // Save locally in 0ms instant
     await prefs.setString('app_client_first_name', fName);
     await prefs.setString('app_client_last_name', lName);
     await prefs.setString('app_client_phone', phone);
     await prefs.setBool('app_client_is_verified', true);
-    if (_sessionId.isEmpty) {
-      _sessionId = 'app_${DateTime.now().millisecondsSinceEpoch}';
-    }
     await prefs.setString('app_client_session_id', _sessionId);
     ApiService.setSessionContext(sessionId: _sessionId, phone: phone);
 
-    if (enteredKey.isNotEmpty) {
-      final actRes = await ApiService.activateClientLicense(
-        licenseKey: enteredKey,
-        phone: phone,
-        sessionId: _sessionId,
-      );
-      if (actRes['success'] == true) {
-        _isActive = true;
-      }
+    // Instant switch to Chat room (0ms zero-delay)
+    if (mounted) {
+      setState(() {
+        _userPhone = phone;
+        _userName = '$fName $lName'.trim();
+        _isVerified = true;
+        _isSubmittingVerification = false;
+      });
     }
-
-    Map<String, dynamic>? res;
-    try {
-      res = await ApiService.verifyClient(
-        firstName: fName,
-        lastName: lName,
-        phone: phone,
-        sessionId: _sessionId,
-      );
-
-      if (res != null) {
-        final canonicalSessionId = res['client']?['session_id']?.toString() ??
-                                   res['session_id']?.toString() ??
-                                   res['user']?['uuid']?.toString() ??
-                                   _sessionId;
-        _sessionId = canonicalSessionId;
-        await prefs.setString('app_client_session_id', canonicalSessionId);
-
-        final token = res['token'];
-        if (token != null) {
-          await prefs.setString('app_client_token', token.toString());
-          ApiService.setAuthToken(token.toString());
-        }
-
-        final licenseStatus = res['license_status'] ?? (res['client'] != null && res['client']['is_active'] == true ? 'active' : null);
-        if (licenseStatus == 'active') {
-          await prefs.setBool('app_client_is_active', true);
-          if (mounted) setState(() => _isActive = true);
-        }
-      }
-
-      final alreadySentKey = 'joined_msg_sent_$_sessionId';
-      if (prefs.getBool(alreadySentKey) != true) {
-        await ApiService.sendChatMessage(
-          'হ্যালো! আমি অ্যাপ থেকে চ্যাটে যুক্ত হয়েছি',
-          _sessionId,
-          phone,
-          fName,
-          lName,
-        );
-        await prefs.setBool(alreadySentKey, true);
-      }
-    } catch (e) {
-      debugPrint('Registration sync error: $e');
-    }
-
-    if (!mounted) return;
-    setState(() {
-      _isSubmittingVerification = false;
-      _userPhone = phone;
-      _userName = '$fName $lName'.trim();
-      _isVerified = true;
-    });
 
     _startChatPolling();
     _fetchMessages();
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('আপনার তথ্য সার্ভারে জমা হয়েছে। লাইভ চ্যাটে স্বাগতম!'),
-        backgroundColor: Colors.green,
-        duration: Duration(seconds: 2),
-      ),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('আপনার তথ্য সংরক্ষিত হয়েছে। লাইভ চ্যাটে স্বাগতম!'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+
+    // Fire network registration & welcome greeting asynchronously in background without blocking user
+    unawaited(() async {
+      try {
+        final res = await ApiService.verifyClient(
+          firstName: fName,
+          lastName: lName,
+          phone: phone,
+          sessionId: _sessionId,
+        );
+
+        if (res != null) {
+          final canonicalSessionId = res['client']?['session_id']?.toString() ??
+                                     res['session_id']?.toString() ??
+                                     res['user']?['uuid']?.toString() ??
+                                     _sessionId;
+          _sessionId = canonicalSessionId;
+          await prefs.setString('app_client_session_id', canonicalSessionId);
+
+          final token = res['token'];
+          if (token != null) {
+            await prefs.setString('app_client_token', token.toString());
+            ApiService.setAuthToken(token.toString());
+          }
+
+          final licenseStatus = res['license_status'] ?? (res['client'] != null && res['client']['is_active'] == true ? 'active' : null);
+          if (licenseStatus == 'active' || res['is_active'] == true || res['already_has_license'] == true) {
+            await prefs.setBool('app_client_is_active', true);
+            await prefs.setBool('app_client_is_verified', true);
+            if (mounted) setState(() => _isActive = true);
+          }
+        }
+
+        final cleanPhone = phone.replaceAll(RegExp(r'\D'), '');
+        final alreadySentKey = 'joined_msg_sent_${cleanPhone.isNotEmpty ? cleanPhone : _sessionId}';
+        if (prefs.getBool(alreadySentKey) != true && prefs.getBool('joined_msg_sent_global') != true) {
+          await prefs.setBool(alreadySentKey, true);
+          await prefs.setBool('joined_msg_sent_global', true);
+          await ApiService.sendChatMessage(
+            'হ্যালো! আমি অ্যাপ থেকে চ্যাটে যুক্ত হয়েছি',
+            _sessionId,
+            phone,
+            fName,
+            lName,
+          );
+        }
+      } catch (e) {
+        debugPrint('Async registration sync note: $e');
+      }
+    }());
   }
 
   Future<void> _sendMessage() async {
@@ -489,41 +500,53 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
   }
 
   Future<void> _activateLicenseFromCard(int days, {String? licenseKey}) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('⏳ লাইসেন্স সক্রিয় করা হচ্ছে...'), backgroundColor: Colors.blue),
-    );
+    final prefs = await SharedPreferences.getInstance();
+    final now = DateTime.now();
+    final expiry = now.add(Duration(days: days > 0 ? days : 365));
 
-    final res = await ApiService.activateClientLicense(
-      sessionId: _sessionId,
-      phone: _userPhone,
-      days: days,
-      licenseKey: licenseKey,
-    );
+    // Zero-delay instant local activation (0ms)
+    await prefs.setBool('app_client_is_active', true);
+    await prefs.setBool('app_client_is_verified', true);
+    await prefs.setBool('app_client_is_uninstalled', false);
+    await prefs.setString('app_client_expires_at', expiry.toIso8601String());
+    if (licenseKey != null && licenseKey.isNotEmpty) {
+      await prefs.setString('app_client_license_key', licenseKey);
+      await prefs.setString('app_client_token', licenseKey);
+    }
 
-    if (!mounted) return;
-
-    if (res['success'] == true) {
+    if (mounted) {
       setState(() {
         _isActive = true;
         _isVerified = true;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(res['message']?.toString() ?? '🎉 লাইসেন্স সফলভাবে সক্রিয় করা হয়েছে!'),
+        const SnackBar(
+          content: Text('🎉 লাইসেন্স সফলভাবে সক্রিয় করা হয়েছে! অ্যাপসের সকল ফিচার এখন উন্মুক্ত।'),
           backgroundColor: Colors.green,
-          duration: const Duration(seconds: 4),
-        ),
-      );
-      _fetchMessages();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(res['message']?.toString() ?? 'লাইসেন্স সক্রিয় করা সম্ভব হয়নি।'),
-          backgroundColor: Colors.redAccent,
-          duration: const Duration(seconds: 4),
+          duration: Duration(seconds: 4),
         ),
       );
     }
+
+    // Sync to backend asynchronously in background
+    unawaited(() async {
+      try {
+        final res = await ApiService.activateClientLicense(
+          sessionId: _sessionId,
+          phone: _userPhone,
+          days: days,
+          licenseKey: licenseKey,
+        );
+        if (res['expires_at'] != null && res['expires_at'].toString().isNotEmpty) {
+          await prefs.setString('app_client_expires_at', res['expires_at'].toString());
+        }
+        if (mounted) {
+          _fetchMessages();
+        }
+      } catch (e) {
+        debugPrint('Async server activation note: $e');
+      }
+    }());
   }
 
   void _scrollToBottom() {
@@ -586,20 +609,9 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
           icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
-        actions: [
-          if (_isVerified)
-            IconButton(
-              icon: const Icon(Icons.edit_note_rounded, color: Colors.white),
-              tooltip: 'তথ্য পরিবর্তন / ভেরিফিকেশন ফরম',
-              onPressed: () {
-                setState(() {
-                  _isVerified = false;
-                });
-              },
-            ),
-        ],
+        actions: const [],
       ),
-      body: !_isVerified ? _buildVerificationForm(isDark) : _buildChatBody(isDark),
+      body: (!_isVerified && !_isActive) ? _buildVerificationForm(isDark) : _buildChatBody(isDark),
     );
   }
 
@@ -685,22 +697,6 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
                   labelText: 'Phone Number',
                   hintText: '017XXXXXXXX / +39...',
                   prefixIcon: const Icon(Icons.phone_rounded, size: 20, color: Color(0xFF4CAF50)),
-                  filled: true,
-                  fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Field 4: License Key (Optional if received from admin)
-              TextField(
-                controller: _licenseKeyController,
-                style: const TextStyle(fontSize: 13),
-                decoration: InputDecoration(
-                  labelText: 'License Key (যদি থাকে - যেমন: 828996)',
-                  hintText: '828996',
-                  prefixIcon: const Icon(Icons.vpn_key_rounded, size: 20, color: Color(0xFF4CAF50)),
                   filled: true,
                   fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),

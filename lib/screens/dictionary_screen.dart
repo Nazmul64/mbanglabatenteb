@@ -32,6 +32,7 @@ class DictionaryScreen extends StatefulWidget {
 }
 
 class _DictionaryScreenState extends State<DictionaryScreen> {
+  static List<PatenteWord> _cachedWords = [];
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   List<PatenteWord> _words = [];
@@ -41,6 +42,10 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
   @override
   void initState() {
     super.initState();
+    if (_cachedWords.isNotEmpty) {
+      _words = List.from(_cachedWords);
+      _isLoading = false;
+    }
     _loadDictionaryWords('');
     _searchController.addListener(_onSearchChanged);
   }
@@ -64,9 +69,11 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
   }
 
   Future<void> _loadDictionaryWords(String query) async {
-    setState(() {
-      _isLoading = true;
-    });
+    if (_words.isEmpty) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
 
     final apiData = await ApiService.fetchDictionary(search: query);
     final List<PatenteWord> loaded = [];

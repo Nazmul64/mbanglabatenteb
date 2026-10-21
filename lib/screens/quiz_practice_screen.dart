@@ -312,7 +312,7 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
       }
 
       if (rawQuestions.isNotEmpty && mounted) {
-        final apiQuestions = rawQuestions.map((q) => q is McqQuestion ? q : McqQuestion.fromJson(q)).toList();
+        final apiQuestions = rawQuestions.take(30).map((q) => q is McqQuestion ? q : McqQuestion.fromJson(q)).toList();
         final List<PatenteQuizItem> items = [];
         for (int index = 0; index < apiQuestions.length; index++) {
           final q = apiQuestions[index];
@@ -393,8 +393,9 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
 
       if (isInitial && widget.questions != null && widget.questions!.isNotEmpty) {
         final List<PatenteQuizItem> items = [];
-        for (int index = 0; index < widget.questions!.length; index++) {
-          final q = widget.questions![index];
+        final sourceQuestions = widget.questions!.take(30).toList();
+        for (int index = 0; index < sourceQuestions.length; index++) {
+          final q = sourceQuestions[index];
           final stats = await BookmarkManager.getQuestionStats(q.italian);
           final gCount = q.giustoCount > 0 ? q.giustoCount : (stats['giusto'] as int? ?? 0);
           final sCount = q.sbagliatoCount > 0 ? q.sbagliatoCount : (stats['sbagliato'] as int? ?? 0);
@@ -437,8 +438,9 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
 
     if (widget.questions != null && widget.questions!.isNotEmpty) {
       final List<PatenteQuizItem> items = [];
-      for (int index = 0; index < widget.questions!.length; index++) {
-        final q = widget.questions![index];
+      final sourceQuestions = widget.questions!.take(30).toList();
+      for (int index = 0; index < sourceQuestions.length; index++) {
+        final q = sourceQuestions[index];
         final stats = await BookmarkManager.getQuestionStats(q.italian);
         final gCount = q.giustoCount > 0 ? q.giustoCount : (stats['giusto'] as int? ?? 0);
         final sCount = q.sbagliatoCount > 0 ? q.sbagliatoCount : (stats['sbagliato'] as int? ?? 0);
@@ -852,11 +854,13 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
               );
             }).toList();
 
+            final cappedMcqList = mcqList.length > 30 ? (List<McqQuestion>.from(mcqList)..shuffle()).take(30).toList() : mcqList;
+
             await Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (context) => ExamSimulationScreen(
-                  customQuestions: mcqList,
+                  customQuestions: cappedMcqList,
                   examTitle: _selectedPagina,
                 ),
               ),

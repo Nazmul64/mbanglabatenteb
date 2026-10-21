@@ -9,7 +9,7 @@ import '../services/api_service.dart';
 class PatenteCategory {
   final int id;
   final String title;
-  final Widget diagram;
+  final Widget? diagram;
   int correct;
   int errors;
   int total;
@@ -18,7 +18,7 @@ class PatenteCategory {
   PatenteCategory({
     required this.id,
     required this.title,
-    required this.diagram,
+    this.diagram,
     this.correct = 0,
     this.errors = 0,
     required this.total,
@@ -36,63 +36,76 @@ class ScegliCategoriaScreen extends StatefulWidget {
 }
 
 class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
+  static List<PatenteCategory> _cachedCategories = [];
   List<PatenteCategory> _categories = [];
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
+    if (_cachedCategories.isNotEmpty) {
+      _categories = List.from(_cachedCategories);
+      _isLoading = false;
+    }
     QuestionDatabase.initialize();
     _loadChapters();
   }
 
   Future<void> _loadChapters() async {
-    setState(() {
-      _isLoading = true;
-    });
+    if (_categories.isEmpty) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
     final apiChapters = await ApiService.fetchChapters();
     if (mounted) {
       if (apiChapters.isNotEmpty) {
-        setState(() {
-          _categories = apiChapters.map((ch) {
-            final id = ch['id'] is int ? ch['id'] as int : int.tryParse('${ch['id']}') ?? 1;
-            final titleStr = (ch['name'] ?? ch['title'] ?? 'Capitolo $id').toString();
-            final total = ch['questions_count'] ?? ch['question_count'] ?? ch['totale'] ?? 0;
-            String imgPath = '';
-            for (final k in ['cover_image', 'image', 'image_path', 'thumbnail', 'img', 'photo', 'icon', 'picture']) {
-              final val = ch[k]?.toString().trim();
-              if (val != null && val.isNotEmpty && val.toLowerCase() != 'null' && val.toLowerCase() != 'undefined') {
-                imgPath = val;
-                break;
-              }
+        final parsed = apiChapters.map((ch) {
+          final id = ch['id'] is int ? ch['id'] as int : int.tryParse('${ch['id']}') ?? 1;
+          final titleStr = (ch['name'] ?? ch['title'] ?? 'Capitolo $id').toString();
+          final total = ch['questions_count'] ?? ch['question_count'] ?? ch['totale'] ?? 0;
+          String imgPath = '';
+          for (final k in ['cover_image', 'image', 'image_path', 'thumbnail', 'img', 'photo', 'icon', 'picture']) {
+            final val = ch[k]?.toString().trim();
+            if (val != null && val.isNotEmpty && val.toLowerCase() != 'null' && val.toLowerCase() != 'undefined') {
+              imgPath = val;
+              break;
             }
-            final fullImgUrl = ApiService.formatImageUrl(imgPath);
-            final chapNum = ch['chapter_number'] ?? id;
+          }
+          final fullImgUrl = ApiService.formatImageUrl(imgPath);
+          final chapNum = ch['chapter_number'] ?? id;
 
-            return PatenteCategory(
-              id: id,
-              title: '$chapNum) ${titleStr.toUpperCase()}',
-              diagram: fullImgUrl.isNotEmpty
-                  ? _buildNetworkImageDiagram(fullImgUrl)
-                  : _buildChapterDiagram(id),
-              correct: ch['corrette'] ?? 0,
-              errors: ch['errori'] ?? 0,
-              total: total > 0 ? total : 0,
-            );
-          }).toList();
+          return PatenteCategory(
+            id: id,
+            title: '$chapNum) ${titleStr.toUpperCase()}',
+            diagram: fullImgUrl.isNotEmpty
+                ? _buildNetworkImageDiagram(fullImgUrl)
+                : null,
+            correct: ch['corrette'] ?? 0,
+            errors: ch['errori'] ?? 0,
+            total: total > 0 ? total : 0,
+          );
+        }).toList();
+
+        _cachedCategories = List.from(parsed);
+        setState(() {
+          _categories = parsed;
           _isLoading = false;
         });
       } else {
-        setState(() {
-          _categories = [];
-          _isLoading = false;
-        });
+        if (_categories.isEmpty) {
+          setState(() {
+            _categories = [];
+            _isLoading = false;
+          });
+        }
       }
     }
   }
 
   Widget _buildNetworkImageDiagram(String url) {
     final formatted = ApiService.formatImageUrl(url);
+    if (formatted.isEmpty) return const SizedBox.shrink();
     return Container(
       height: 140,
       width: double.infinity,
@@ -111,7 +124,7 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
             ),
           );
         },
-        errorBuilder: (ctx, err, stack) => const Center(child: Icon(Icons.school_rounded, size: 48, color: Colors.purple)),
+        errorBuilder: (ctx, err, stack) => const SizedBox.shrink(),
       ),
     );
   }
@@ -208,199 +221,8 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
     }
   }
 
-  Widget _buildChapterDiagram(int chapterId) {
-    if (chapterId == 1) {
-      return _buildRoadLayoutDiagram();
-    } else if (chapterId == 2) {
-      return _buildDangerSignsDiagram();
-    } else {
-      return _buildGenericChapterDiagram(chapterId);
-    }
-  }
-
-  Widget _buildGenericChapterDiagram(int chapterId) {
-    IconData icon;
-    Color color;
-    switch (chapterId % 6) {
-      case 0:
-        icon = Icons.traffic_rounded;
-        color = Colors.blue;
-        break;
-      case 1:
-        icon = Icons.warning_amber_rounded;
-        color = Colors.red;
-        break;
-      case 2:
-        icon = Icons.directions_car_rounded;
-        color = Colors.green;
-        break;
-      case 3:
-        icon = Icons.assignment_rounded;
-        color = Colors.orange;
-        break;
-      case 4:
-        icon = Icons.school_rounded;
-        color = Colors.purple;
-        break;
-      default:
-        icon = Icons.verified_user_rounded;
-        color = Colors.teal;
-    }
-    return Container(
-      height: 140,
-      color: Colors.transparent,
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 44, color: color),
-            const SizedBox(height: 8),
-            Text(
-              'Capitolo $chapterId',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey.shade700,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRoadLayoutDiagram() {
-    return Container(
-      height: 140,
-      color: Colors.transparent,
-      padding: const EdgeInsets.all(8),
-      child: Column(
-        children: [
-          const Text(
-            'LA STRADA',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Colors.blue),
-          ),
-          const Spacer(),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              _buildRoadSection('MARCIAPIEDE', Colors.grey.shade400, 24),
-              const SizedBox(width: 4),
-              _buildRoadSection('PISTA\nCICLABILE', Colors.green.shade400, 26),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Container(
-                  height: 75,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade800,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Positioned(
-                        left: 0, right: 0,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: List.generate(4, (index) => Container(width: 10, height: 2, color: Colors.white60)),
-                        ),
-                      ),
-                      Positioned(
-                        left: 10, top: 12,
-                        child: Container(width: 22, height: 12, decoration: BoxDecoration(color: Colors.red.shade400, borderRadius: BorderRadius.circular(3))),
-                      ),
-                      Positioned(
-                        right: 10, bottom: 12,
-                        child: Container(width: 22, height: 12, decoration: BoxDecoration(color: Colors.blue.shade400, borderRadius: BorderRadius.circular(3))),
-                      ),
-                      const Positioned(
-                        bottom: 4,
-                        child: Text(
-                          'CARREGGIATA',
-                          style: TextStyle(fontSize: 7.5, color: Colors.white, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 4),
-              _buildRoadSection('BANCHINA', Colors.grey.shade400, 24),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRoadSection(String label, Color color, double width) {
-    return Container(
-      width: width,
-      height: 60,
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      padding: const EdgeInsets.all(2),
-      child: Center(
-        child: Text(
-          label,
-          style: const TextStyle(fontSize: 5.5, fontWeight: FontWeight.w900, color: Colors.black87),
-          textAlign: TextAlign.center,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDangerSignsDiagram() {
-    return Container(
-      height: 140,
-      color: Colors.transparent,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          const Positioned(
-            top: 8,
-            child: Text(
-              'SEGNALI DI PERICOLO',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Colors.red),
-            ),
-          ),
-          Positioned(
-            left: 20, bottom: 16,
-            child: _buildTriangleSign(Icons.navigation_rounded),
-          ),
-          Positioned(
-            bottom: 16,
-            child: _buildTriangleSign(Icons.train_rounded),
-          ),
-          Positioned(
-            right: 20, bottom: 16,
-            child: _buildTriangleSign(Icons.warning_amber_rounded),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTriangleSign(IconData icon) {
-    return CustomPaint(
-      size: const Size(54, 46),
-      painter: _TriangleSignPainter(),
-      child: SizedBox(
-        width: 54,
-        height: 46,
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.only(top: 12.0),
-            child: Icon(icon, size: 18, color: Colors.black),
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
+
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
@@ -594,14 +416,14 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-
-              // Image/Diagram Block
-              ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: cat.diagram,
-              ),
-
+              // Image/Diagram Block (only if an image is uploaded)
+              if (cat.diagram != null) ...[
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: cat.diagram!,
+                ),
+              ],
               const SizedBox(height: 14),
 
               // Progresso Title (Centered)
@@ -725,28 +547,3 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
   }
 }
 
-class _TriangleSignPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.red
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4;
-
-    final fillPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-
-    final path = Path()
-      ..moveTo(size.width / 2, 4)
-      ..lineTo(4, size.height - 4)
-      ..lineTo(size.width - 4, size.height - 4)
-      ..close();
-
-    canvas.drawPath(path, fillPaint);
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}

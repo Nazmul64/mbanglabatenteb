@@ -11,6 +11,23 @@ class BookmarkManager {
   static const String _correctKey = 'correct_questions';
   static const String _wrongKey = 'wrong_questions';
 
+  static Future<String> _scopedKey(String baseKey) async {
+    final prefs = await SharedPreferences.getInstance();
+    final phone = prefs.getString('app_client_phone') ??
+        prefs.getString('user_phone') ??
+        prefs.getString('phone') ?? '';
+    final cleanPhone = phone.replaceAll(RegExp(r'\D'), '');
+    if (cleanPhone.isNotEmpty) {
+      return 'user_${cleanPhone}_$baseKey';
+    }
+    final sessionId = prefs.getString('app_client_session_id') ??
+        prefs.getString('session_id') ?? '';
+    if (sessionId.isNotEmpty) {
+      return 'sess_${sessionId}_$baseKey';
+    }
+    return 'default_$baseKey';
+  }
+
   static String _cleanKey(String text) => text.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 
   static String? cleanQuestionImage(String? img) {
@@ -81,8 +98,9 @@ class BookmarkManager {
         }
       }
 
-      // Read local saved items and merge
-      final List<String> localList = prefs.getStringList(_key) ?? [];
+      // Read local saved items strictly for this user and merge
+      final scopedKey = await _scopedKey(_key);
+      final List<String> localList = prefs.getStringList(scopedKey) ?? [];
       final List<McqQuestion> localQuestions = [];
       for (var item in localList) {
         try {
@@ -125,7 +143,7 @@ class BookmarkManager {
 
       final mergedList = uniqueMap.values.toList();
       final List<String> encodedList = mergedList.map((q) => json.encode(q.toJson())).toList();
-      await prefs.setStringList(_key, encodedList);
+      await prefs.setStringList(scopedKey, encodedList);
       return mergedList;
     } catch (e) {
       debugPrint('Error syncing bookmarks with server: $e');
@@ -136,7 +154,8 @@ class BookmarkManager {
   /// Save a question to bookmarks
   static Future<void> saveQuestion(McqQuestion question, {String? type}) async {
     final prefs = await SharedPreferences.getInstance();
-    final List<String> list = prefs.getStringList(_key) ?? [];
+    final scopedKey = await _scopedKey(_key);
+    final List<String> list = prefs.getStringList(scopedKey) ?? [];
     final targetKey = _cleanKey(question.italian);
 
     final bool exists = list.any((item) {
@@ -150,7 +169,7 @@ class BookmarkManager {
 
     if (!exists) {
       list.insert(0, json.encode(question.toJson()));
-      await prefs.setStringList(_key, list);
+      await prefs.setStringList(scopedKey, list);
     }
 
     // Sync to Laravel API backend database
@@ -165,7 +184,8 @@ class BookmarkManager {
   /// Remove a question from bookmarks
   static Future<void> removeQuestion(String italianText, [dynamic questionId, String? type]) async {
     final prefs = await SharedPreferences.getInstance();
-    final List<String> list = prefs.getStringList(_key) ?? [];
+    final scopedKey = await _scopedKey(_key);
+    final List<String> list = prefs.getStringList(scopedKey) ?? [];
     final targetKey = _cleanKey(italianText);
 
     list.removeWhere((item) {
@@ -177,7 +197,7 @@ class BookmarkManager {
       }
     });
 
-    await prefs.setStringList(_key, list);
+    await prefs.setStringList(scopedKey, list);
 
     // Sync to Laravel API backend database
     try {
@@ -202,7 +222,8 @@ class BookmarkManager {
   /// Check if a question is saved
   static Future<bool> isSaved(String italianText, [dynamic questionId]) async {
     final prefs = await SharedPreferences.getInstance();
-    final List<String> list = prefs.getStringList(_key) ?? [];
+    final scopedKey = await _scopedKey(_key);
+    final List<String> list = prefs.getStringList(scopedKey) ?? [];
     final targetKey = _cleanKey(italianText);
 
     return list.any((item) {
@@ -215,27 +236,43 @@ class BookmarkManager {
     });
   }
 
-  /// Get all saved questions
+  /// Fast 0ms retrieval of saved questions from local device storage
+  static Future<List<McqQuestion>> getLocalSavedQuestions() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final scopedKey = await _scopedKey(_key);
+      final List<String> list = prefs.getStringList(scopedKey) ?? [];
+
+      final List<McqQuestion> results = [];
+      for (var item in list) {
+        try {
+          final map = json.decode(item);
+          if (map is Map<String, dynamic>) {
+            final parsed = McqQuestion.fromJson(map);
+            results.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
+          }
+        } catch (_) {}
+      }
+      return results;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Get all saved questions (local first for 0ms instant display + background sync)
   static Future<List<McqQuestion>> getSavedQuestions() async {
+    final localItems = await getLocalSavedQuestions();
+    if (localItems.isNotEmpty) {
+      // Silently sync with server in background without blocking the UI
+      syncWithServer().catchError((_) => <McqQuestion>[]);
+      return localItems;
+    }
+
     final synced = await syncWithServer();
     if (synced != null && synced.isNotEmpty) {
       return synced;
     }
-
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> list = prefs.getStringList(_key) ?? [];
-
-    final List<McqQuestion> results = [];
-    for (var item in list) {
-      try {
-        final map = json.decode(item);
-        if (map is Map<String, dynamic>) {
-          final parsed = McqQuestion.fromJson(map);
-          results.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
-        }
-      } catch (_) {}
-    }
-    return results;
+    return localItems;
   }
 
   // ══════════════════════════════════════════════════════
@@ -245,7 +282,8 @@ class BookmarkManager {
   /// Save or update a note for a specific question
   static Future<void> saveNote(McqQuestion question, String noteText, {String? type}) async {
     final prefs = await SharedPreferences.getInstance();
-    final List<String> list = prefs.getStringList(_notedKey) ?? [];
+    final scopedKey = await _scopedKey(_notedKey);
+    final List<String> list = prefs.getStringList(scopedKey) ?? [];
     final targetKey = _cleanKey(question.italian);
 
     final updatedQ = question.copyWith(
@@ -266,7 +304,7 @@ class BookmarkManager {
     if (noteText.trim().isNotEmpty) {
       list.insert(0, json.encode(updatedQ.toJson()));
     }
-    await prefs.setStringList(_notedKey, list);
+    await prefs.setStringList(scopedKey, list);
 
     // Sync to Server in background
     try {
@@ -288,7 +326,8 @@ class BookmarkManager {
   /// Remove a note for a question
   static Future<void> removeNote(String italianText, [dynamic questionId]) async {
     final prefs = await SharedPreferences.getInstance();
-    final List<String> list = prefs.getStringList(_notedKey) ?? [];
+    final scopedKey = await _scopedKey(_notedKey);
+    final List<String> list = prefs.getStringList(scopedKey) ?? [];
     final targetKey = _cleanKey(italianText);
 
     list.removeWhere((item) {
@@ -300,7 +339,7 @@ class BookmarkManager {
       }
     });
 
-    await prefs.setStringList(_notedKey, list);
+    await prefs.setStringList(scopedKey, list);
 
     try {
       if (questionId != null && questionId != 0) {
@@ -314,7 +353,8 @@ class BookmarkManager {
   /// Get the stored note for a question
   static Future<String?> getNoteForQuestion(String italianText, [dynamic questionId]) async {
     final prefs = await SharedPreferences.getInstance();
-    final List<String> list = prefs.getStringList(_notedKey) ?? [];
+    final scopedKey = await _scopedKey(_notedKey);
+    final List<String> list = prefs.getStringList(scopedKey) ?? [];
     final targetKey = _cleanKey(italianText);
     if (targetKey.isEmpty) return null;
 
@@ -333,21 +373,42 @@ class BookmarkManager {
     return null;
   }
 
-  /// Get all noted questions (merging local + server)
-  static Future<List<McqQuestion>> getNotedQuestions() async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> localList = prefs.getStringList(_notedKey) ?? [];
-    final List<McqQuestion> localNoted = [];
+  /// Fast 0ms retrieval of noted questions from local device storage
+  static Future<List<McqQuestion>> getLocalNotedQuestions() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final scopedKey = await _scopedKey(_notedKey);
+      final List<String> localList = prefs.getStringList(scopedKey) ?? [];
+      final List<McqQuestion> localNoted = [];
 
-    for (var item in localList) {
-      try {
-        final map = json.decode(item);
-        if (map is Map<String, dynamic>) {
-          final parsed = McqQuestion.fromJson(map);
-          localNoted.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
-        }
-      } catch (_) {}
+      for (var item in localList) {
+        try {
+          final map = json.decode(item);
+          if (map is Map<String, dynamic>) {
+            final parsed = McqQuestion.fromJson(map);
+            localNoted.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
+          }
+        } catch (_) {}
+      }
+      return localNoted;
+    } catch (_) {
+      return [];
     }
+  }
+
+  /// Get all noted questions (merging local + server, local first for 0ms instant response)
+  static Future<List<McqQuestion>> getNotedQuestions() async {
+    final localNoted = await getLocalNotedQuestions();
+    if (localNoted.isNotEmpty) {
+      _syncNotedQuestionsWithServer(localNoted).catchError((_) => <McqQuestion>[]);
+      return localNoted;
+    }
+    return await _syncNotedQuestionsWithServer(localNoted);
+  }
+
+  static Future<List<McqQuestion>> _syncNotedQuestionsWithServer(List<McqQuestion> localNoted) async {
+    final prefs = await SharedPreferences.getInstance();
+    final scopedKey = await _scopedKey(_notedKey);
 
     try {
       final serverItems = await ApiService.fetchNotedMcqs();
@@ -402,7 +463,7 @@ class BookmarkManager {
 
         final mergedList = uniqueMap.values.toList();
         final List<String> encodedList = mergedList.map((q) => json.encode(q.toJson())).toList();
-        await prefs.setStringList(_notedKey, encodedList);
+        await prefs.setStringList(scopedKey, encodedList);
         return mergedList;
       }
     } catch (e) {
@@ -428,11 +489,11 @@ class BookmarkManager {
     final targetKey = _cleanKey(question.italian);
     if (targetKey.isEmpty) return;
 
-    final key = isCorrect ? _correctKey : _wrongKey;
-    final otherKey = isCorrect ? _wrongKey : _correctKey;
+    final scopedTargetKey = await _scopedKey(isCorrect ? _correctKey : _wrongKey);
+    final scopedOtherKey = await _scopedKey(isCorrect ? _wrongKey : _correctKey);
 
-    final List<String> targetList = prefs.getStringList(key) ?? [];
-    final List<String> otherList = prefs.getStringList(otherKey) ?? [];
+    final List<String> targetList = prefs.getStringList(scopedTargetKey) ?? [];
+    final List<String> otherList = prefs.getStringList(scopedOtherKey) ?? [];
 
     // 1. Remove from opposing list
     otherList.removeWhere((item) {
@@ -443,7 +504,7 @@ class BookmarkManager {
         return false;
       }
     });
-    await prefs.setStringList(otherKey, otherList);
+    await prefs.setStringList(scopedOtherKey, otherList);
 
     // 2. Add or update in target list
     int existingIndex = targetList.indexWhere((item) {
@@ -466,7 +527,7 @@ class BookmarkManager {
     } else {
       targetList.insert(0, json.encode(updatedQ.toJson()));
     }
-    await prefs.setStringList(key, targetList);
+    await prefs.setStringList(scopedTargetKey, targetList);
 
     // 3. Log to API backend database (single item)
     if (syncToServer) {
@@ -557,30 +618,53 @@ class BookmarkManager {
           'results': loggedAnswers,
         };
 
-        await ApiService.submitSchedaEsame(payload);
-        await ApiService.submitTestResult(payload);
-        await ApiService.logUserMcqBatch(loggedAnswers, sessionId: sessionId, phone: phone);
+        // Submit exam results once to backend for full synchronization
+        final res = await ApiService.submitSchedaEsame(payload);
+        if (res == null) {
+          await ApiService.submitTestResult(payload);
+        }
       } catch (e) {
         debugPrint('Error submitting exam results to server: $e');
       }
     }
   }
 
-  /// Get all correct questions (merging local + server)
-  static Future<List<McqQuestion>> getCorrectQuestions() async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> localList = prefs.getStringList(_correctKey) ?? [];
-    final List<McqQuestion> localCorrect = [];
+  /// Fast 0ms retrieval of correct questions from local device storage
+  static Future<List<McqQuestion>> getLocalCorrectQuestions() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final scopedKey = await _scopedKey(_correctKey);
+      final List<String> localList = prefs.getStringList(scopedKey) ?? [];
+      final List<McqQuestion> localCorrect = [];
 
-    for (var item in localList) {
-      try {
-        final map = json.decode(item);
-        if (map is Map<String, dynamic>) {
-          final parsed = McqQuestion.fromJson(map);
-          localCorrect.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
-        }
-      } catch (_) {}
+      for (var item in localList) {
+        try {
+          final map = json.decode(item);
+          if (map is Map<String, dynamic>) {
+            final parsed = McqQuestion.fromJson(map);
+            localCorrect.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
+          }
+        } catch (_) {}
+      }
+      return localCorrect;
+    } catch (_) {
+      return [];
     }
+  }
+
+  /// Get all correct questions (merging local + server, local first for 0ms instant display)
+  static Future<List<McqQuestion>> getCorrectQuestions() async {
+    final localCorrect = await getLocalCorrectQuestions();
+    if (localCorrect.isNotEmpty) {
+      _syncCorrectQuestionsWithServer(localCorrect).catchError((_) => <McqQuestion>[]);
+      return localCorrect;
+    }
+    return await _syncCorrectQuestionsWithServer(localCorrect);
+  }
+
+  static Future<List<McqQuestion>> _syncCorrectQuestionsWithServer(List<McqQuestion> localCorrect) async {
+    final prefs = await SharedPreferences.getInstance();
+    final scopedKey = await _scopedKey(_correctKey);
 
     try {
       final serverItems = await ApiService.fetchCorrectMcqs();
@@ -603,9 +687,13 @@ class BookmarkManager {
             final cCount = (jsonItem is Map && jsonItem['correct_count'] != null)
                 ? (jsonItem['correct_count'] is int ? jsonItem['correct_count'] : int.tryParse('${jsonItem['correct_count']}') ?? 1)
                 : (parsed.giustoCount > 0 ? parsed.giustoCount : 1);
+            final wCount = (jsonItem is Map && jsonItem['wrong_count'] != null)
+                ? (jsonItem['wrong_count'] is int ? jsonItem['wrong_count'] : int.tryParse('${jsonItem['wrong_count']}') ?? 0)
+                : parsed.sbagliatoCount;
             serverCorrect.add(parsed.copyWith(
               image: cleanQuestionImage(parsed.image),
               giustoCount: cCount,
+              sbagliatoCount: wCount,
             ));
           }
         }
@@ -623,17 +711,18 @@ class BookmarkManager {
             final existing = uniqueMap[key];
             final cleanExistingImg = existing != null ? cleanQuestionImage(existing.image) : null;
             final cleanServerImg = cleanQuestionImage(q.image);
-            uniqueMap[key] = q.copyWith(
+            uniqueMap[key] = (existing ?? q).copyWith(
               id: q.id != 0 ? q.id : (existing?.id ?? 0),
               image: cleanServerImg ?? cleanExistingImg,
-              giustoCount: (existing != null && existing.giustoCount > q.giustoCount) ? existing.giustoCount : q.giustoCount,
+              giustoCount: existing?.giustoCount ?? q.giustoCount,
+              sbagliatoCount: existing?.sbagliatoCount ?? q.sbagliatoCount,
             );
           }
         }
 
         final mergedList = uniqueMap.values.toList();
         final List<String> encodedList = mergedList.map((q) => json.encode(q.toJson())).toList();
-        await prefs.setStringList(_correctKey, encodedList);
+        await prefs.setStringList(scopedKey, encodedList);
         return mergedList;
       }
     } catch (e) {
@@ -643,21 +732,42 @@ class BookmarkManager {
     return localCorrect;
   }
 
-  /// Get all wrong questions (merging local + server)
-  static Future<List<McqQuestion>> getWrongQuestions() async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> localList = prefs.getStringList(_wrongKey) ?? [];
-    final List<McqQuestion> localWrong = [];
+  /// Fast 0ms retrieval of wrong questions from local device storage
+  static Future<List<McqQuestion>> getLocalWrongQuestions() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final scopedKey = await _scopedKey(_wrongKey);
+      final List<String> localList = prefs.getStringList(scopedKey) ?? [];
+      final List<McqQuestion> localWrong = [];
 
-    for (var item in localList) {
-      try {
-        final map = json.decode(item);
-        if (map is Map<String, dynamic>) {
-          final parsed = McqQuestion.fromJson(map);
-          localWrong.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
-        }
-      } catch (_) {}
+      for (var item in localList) {
+        try {
+          final map = json.decode(item);
+          if (map is Map<String, dynamic>) {
+            final parsed = McqQuestion.fromJson(map);
+            localWrong.add(parsed.copyWith(image: cleanQuestionImage(parsed.image)));
+          }
+        } catch (_) {}
+      }
+      return localWrong;
+    } catch (_) {
+      return [];
     }
+  }
+
+  /// Get all wrong questions (merging local + server, local first for 0ms instant display)
+  static Future<List<McqQuestion>> getWrongQuestions() async {
+    final localWrong = await getLocalWrongQuestions();
+    if (localWrong.isNotEmpty) {
+      _syncWrongQuestionsWithServer(localWrong).catchError((_) => <McqQuestion>[]);
+      return localWrong;
+    }
+    return await _syncWrongQuestionsWithServer(localWrong);
+  }
+
+  static Future<List<McqQuestion>> _syncWrongQuestionsWithServer(List<McqQuestion> localWrong) async {
+    final prefs = await SharedPreferences.getInstance();
+    final scopedKey = await _scopedKey(_wrongKey);
 
     try {
       final serverItems = await ApiService.fetchWrongMcqs();
@@ -680,8 +790,12 @@ class BookmarkManager {
             final wCount = (jsonItem is Map && jsonItem['wrong_count'] != null)
                 ? (jsonItem['wrong_count'] is int ? jsonItem['wrong_count'] : int.tryParse('${jsonItem['wrong_count']}') ?? 1)
                 : (parsed.sbagliatoCount > 0 ? parsed.sbagliatoCount : 1);
+            final cCount = (jsonItem is Map && jsonItem['correct_count'] != null)
+                ? (jsonItem['correct_count'] is int ? jsonItem['correct_count'] : int.tryParse('${jsonItem['correct_count']}') ?? 0)
+                : parsed.giustoCount;
             serverWrong.add(parsed.copyWith(
               image: cleanQuestionImage(parsed.image),
+              giustoCount: cCount,
               sbagliatoCount: wCount,
             ));
           }
@@ -700,17 +814,18 @@ class BookmarkManager {
             final existing = uniqueMap[key];
             final cleanExistingImg = existing != null ? cleanQuestionImage(existing.image) : null;
             final cleanServerImg = cleanQuestionImage(q.image);
-            uniqueMap[key] = q.copyWith(
+            uniqueMap[key] = (existing ?? q).copyWith(
               id: q.id != 0 ? q.id : (existing?.id ?? 0),
               image: cleanServerImg ?? cleanExistingImg,
-              sbagliatoCount: (existing != null && existing.sbagliatoCount > q.sbagliatoCount) ? existing.sbagliatoCount : q.sbagliatoCount,
+              giustoCount: existing?.giustoCount ?? q.giustoCount,
+              sbagliatoCount: existing?.sbagliatoCount ?? q.sbagliatoCount,
             );
           }
         }
 
         final mergedList = uniqueMap.values.toList();
         final List<String> encodedList = mergedList.map((q) => json.encode(q.toJson())).toList();
-        await prefs.setStringList(_wrongKey, encodedList);
+        await prefs.setStringList(scopedKey, encodedList);
         return mergedList;
       }
     } catch (e) {
@@ -728,13 +843,18 @@ class BookmarkManager {
     }
 
     final prefs = await SharedPreferences.getInstance();
+    final scopedCorrect = await _scopedKey(_correctKey);
+    final scopedWrong = await _scopedKey(_wrongKey);
+    final scopedNoted = await _scopedKey(_notedKey);
+    final scopedSaved = await _scopedKey(_key);
+
     int giusto = 0;
     int sbagliato = 0;
     String? note;
     bool saved = false;
 
     // 1. Check correct list
-    final List<String> correctList = prefs.getStringList(_correctKey) ?? [];
+    final List<String> correctList = prefs.getStringList(scopedCorrect) ?? [];
     for (var item in correctList) {
       try {
         final map = json.decode(item);
@@ -748,7 +868,7 @@ class BookmarkManager {
     }
 
     // 2. Check wrong list
-    final List<String> wrongList = prefs.getStringList(_wrongKey) ?? [];
+    final List<String> wrongList = prefs.getStringList(scopedWrong) ?? [];
     for (var item in wrongList) {
       try {
         final map = json.decode(item);
@@ -762,7 +882,7 @@ class BookmarkManager {
     }
 
     // 3. Check notes list
-    final List<String> notesList = prefs.getStringList(_notedKey) ?? [];
+    final List<String> notesList = prefs.getStringList(scopedNoted) ?? [];
     for (var item in notesList) {
       try {
         final map = json.decode(item);
@@ -774,7 +894,7 @@ class BookmarkManager {
     }
 
     // 4. Check saved list
-    final List<String> savedList = prefs.getStringList(_key) ?? [];
+    final List<String> savedList = prefs.getStringList(scopedSaved) ?? [];
     for (var item in savedList) {
       try {
         final map = json.decode(item);

@@ -38,8 +38,9 @@ class SavedQuestionsScreen extends StatefulWidget {
 }
 
 class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
+  static final Map<McqScreenMode, List<PatenteQuizItem>> _memoryCache = {};
   List<PatenteQuizItem> _quizzes = [];
-  bool _isLoading = true;
+  bool _isLoading = false;
   bool _isSelectActive = false;
 
   final FlutterTts _flutterTts = FlutterTts();
@@ -50,6 +51,10 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
   @override
   void initState() {
     super.initState();
+    if (_memoryCache[widget.mode] != null && _memoryCache[widget.mode]!.isNotEmpty) {
+      _quizzes = List.from(_memoryCache[widget.mode]!);
+      _isLoading = false;
+    }
     _initAudioAndTts();
     _loadQuestions();
   }
@@ -106,10 +111,58 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
     });
   }
 
-  Future<void> _loadQuestions() async {
-    setState(() => _isLoading = true);
-    List<McqQuestion> loaded = [];
+  List<PatenteQuizItem> _mapQuestionsToQuizItems(List<McqQuestion> questions) {
+    return questions.asMap().entries.map((entry) {
+      final idx = entry.key;
+      final q = entry.value;
+      final int gCount = q.giustoCount;
+      final int sCount = q.sbagliatoCount;
 
+      return PatenteQuizItem(
+        rawId: q.id,
+        id: '${idx + 1}',
+        italian: q.italian,
+        bangla: q.bangla,
+        isVero: q.isVero,
+        audioNote: 'অডিও ব্যাখ্যা সহ বিস্তারিত প্রস্তুত পড়ুন',
+        image: q.image,
+        imagePosition: q.imagePosition,
+        audioUrl: q.audio,
+        vocabulary: q.vocabulary,
+        isSaved: widget.mode == McqScreenMode.saved,
+        studyNotes: q.userNote ?? '',
+        giustoCount: gCount,
+        sbagliatoCount: sCount,
+      );
+    }).toList();
+  }
+
+  Future<void> _loadQuestions() async {
+    // 1. Immediately load local items for 0ms instant display without spinners
+    List<McqQuestion> localList = [];
+    try {
+      if (widget.mode == McqScreenMode.wrong) {
+        localList = await BookmarkManager.getLocalWrongQuestions();
+      } else if (widget.mode == McqScreenMode.correct) {
+        localList = await BookmarkManager.getLocalCorrectQuestions();
+      } else if (widget.mode == McqScreenMode.noted) {
+        localList = await BookmarkManager.getLocalNotedQuestions();
+      } else {
+        localList = await BookmarkManager.getLocalSavedQuestions();
+      }
+    } catch (_) {}
+
+    if (mounted && localList.isNotEmpty) {
+      final mapped = _mapQuestionsToQuizItems(localList);
+      _memoryCache[widget.mode] = mapped;
+      setState(() {
+        _quizzes = mapped;
+        _isLoading = false;
+      });
+    }
+
+    // 2. Fetch / sync from server in background
+    List<McqQuestion> loaded = [];
     try {
       if (widget.mode == McqScreenMode.wrong) {
         loaded = await BookmarkManager.getWrongQuestions();
@@ -125,34 +178,11 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
     }
 
     if (mounted) {
+      final finalItems = loaded.isNotEmpty ? loaded : localList;
+      final mapped = _mapQuestionsToQuizItems(finalItems);
+      _memoryCache[widget.mode] = mapped;
       setState(() {
-        _quizzes = loaded.asMap().entries.map((entry) {
-          final idx = entry.key;
-          final q = entry.value;
-          final int gCount = widget.mode == McqScreenMode.wrong
-              ? (q.giustoCount > 0 ? q.giustoCount : 0)
-              : (widget.mode == McqScreenMode.correct ? (q.giustoCount > 0 ? q.giustoCount : 1) : q.giustoCount);
-          final int sCount = widget.mode == McqScreenMode.wrong
-              ? (q.sbagliatoCount > 0 ? q.sbagliatoCount : 1)
-              : (widget.mode == McqScreenMode.correct ? (q.sbagliatoCount > 0 ? q.sbagliatoCount : 0) : q.sbagliatoCount);
-
-          return PatenteQuizItem(
-            rawId: q.id,
-            id: '${idx + 1}',
-            italian: q.italian,
-            bangla: q.bangla,
-            isVero: q.isVero,
-            audioNote: 'অডিও ব্যাখ্যা সহ বিস্তারিত প্রস্তুত পড়ুন',
-            image: q.image,
-            imagePosition: q.imagePosition,
-            audioUrl: q.audio,
-            vocabulary: q.vocabulary,
-            isSaved: widget.mode == McqScreenMode.saved,
-            studyNotes: q.userNote ?? '',
-            giustoCount: gCount,
-            sbagliatoCount: sCount,
-          );
-        }).toList();
+        _quizzes = mapped;
         _isLoading = false;
       });
     }

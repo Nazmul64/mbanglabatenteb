@@ -258,28 +258,9 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
           ));
         }
 
-        // Guarantee exactly 30 questions for exam simulation (never cut off at 21/22 MCQs)
+        // Cap at maximum 30 questions. If fewer exist (e.g. 2 questions), keep the exact available questions without padding
         if (loaded.length > 30) {
           loaded = (List<ExamQuestion>.from(loaded)..shuffle()).take(30).toList();
-        } else if (loaded.isNotEmpty && loaded.length < 30) {
-          final originalList = List<ExamQuestion>.from(loaded);
-          int padIdx = 0;
-          while (loaded.length < 30) {
-            final src = originalList[padIdx % originalList.length];
-            loaded.add(ExamQuestion(
-              id: '${src.id}_pad_${loaded.length + 1}',
-              statement: src.statement,
-              isVero: src.isVero,
-              translation: src.translation,
-              vocabularyHelp: src.vocabularyHelp,
-              vocabulary: src.vocabulary,
-              chapter: src.chapter,
-              chapterName: src.chapterName,
-              image: src.image,
-              audio: src.audio,
-            ));
-            padIdx++;
-          }
         }
       }
     } catch (e) {
@@ -726,9 +707,9 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Riepilogo Domande (১-৩০)',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  Text(
+                    'Riepilogo Domande (১-${_questions.length})',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close_rounded),
@@ -1431,63 +1412,56 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                 ),
                 const SizedBox(height: 8),
 
-                // 3. Questions Grid Bar - Dynamic rows of 15 buttons for all questions (e.g. 1-35)
+                // 3. Questions Grid Bar - Dynamic buttons for only existing questions
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 14.0),
-                  child: Column(
-                    children: [
-                      for (int rowIndex = 0; rowIndex < (_questions.isEmpty ? 2 : (_questions.length / 15).ceil()); rowIndex++) ...[
-                        if (rowIndex > 0) const SizedBox(height: 4),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: List.generate(15, (colIndex) {
-                            final qIndex = rowIndex * 15 + colIndex;
-                            final isAvailable = qIndex < _questions.length;
-                            final isCurrent = qIndex == safeIndex;
-                            final isAnswered = isAvailable && _questions[qIndex].userSelectedVero != null;
+                  child: Center(
+                    child: Wrap(
+                      spacing: 4,
+                      runSpacing: 4,
+                      alignment: WrapAlignment.center,
+                      children: List.generate(_questions.length, (qIndex) {
+                        final isCurrent = qIndex == safeIndex;
+                        final isAnswered = _questions[qIndex].userSelectedVero != null;
 
-                            return isAvailable
-                                ? InkWell(
-                                    onTap: () {
-                                      setState(() {
-                                        _currentIndex = qIndex;
-                                        _selectedGroupIndex = qIndex ~/ 10;
-                                      });
-                                    },
-                                    child: Container(
-                                      width: 22,
-                                      height: 22,
-                                      decoration: BoxDecoration(
-                                        color: isCurrent
-                                            ? const Color(0xFFE53935)
-                                            : (isAnswered ? const Color(0xFF4CAF50) : (isDark ? Colors.white10 : Colors.white)),
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(
-                                          color: isCurrent
-                                              ? const Color(0xFFE53935)
-                                              : (isAnswered ? const Color(0xFF4CAF50) : (isDark ? Colors.white24 : Colors.grey.shade300)),
-                                          width: 1.0,
-                                        ),
-                                      ),
-                                      child: Center(
-                                        child: Text(
-                                          '${qIndex + 1}',
-                                          style: TextStyle(
-                                            fontSize: 9.5,
-                                            fontWeight: FontWeight.bold,
-                                            color: (isCurrent || isAnswered)
-                                                ? Colors.white
-                                                : (isDark ? Colors.white70 : Colors.black87),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  )
-                                : const SizedBox(width: 22, height: 22);
-                          }),
-                        ),
-                      ],
-                    ],
+                        return InkWell(
+                          onTap: () {
+                            setState(() {
+                              _currentIndex = qIndex;
+                              _selectedGroupIndex = qIndex ~/ 10;
+                            });
+                          },
+                          child: Container(
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: isCurrent
+                                  ? const Color(0xFFE53935)
+                                  : (isAnswered ? const Color(0xFF4CAF50) : (isDark ? Colors.white10 : Colors.white)),
+                              borderRadius: BorderRadius.circular(5),
+                              border: Border.all(
+                                color: isCurrent
+                                    ? const Color(0xFFE53935)
+                                    : (isAnswered ? const Color(0xFF4CAF50) : (isDark ? Colors.white24 : Colors.grey.shade300)),
+                                width: 1.0,
+                              ),
+                            ),
+                            child: Center(
+                              child: Text(
+                                '${qIndex + 1}',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: (isCurrent || isAnswered)
+                                      ? Colors.white
+                                      : (isDark ? Colors.white70 : Colors.black87),
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 10),

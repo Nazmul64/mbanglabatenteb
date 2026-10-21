@@ -127,7 +127,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               await prefs.setString('user_phone', ph);
 
               final sessionId = prefs.getString('app_client_session_id') ?? '';
-              ApiService.setSessionContext(phone: ph, sessionId: sessionId);
+              ApiService.setSessionContext(phone: ph, sessionId: sessionId, firstName: fName, lastName: lName);
               if (fName.isNotEmpty && ph.isNotEmpty) {
                 ApiService.verifyClient(
                   firstName: fName,

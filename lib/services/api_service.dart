@@ -1,4 +1,4 @@
-import 'dart:async';
+   import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -21,6 +21,8 @@ class ApiService {
   static String? _authToken;
   static String? _activeSessionId;
   static String? _activeClientPhone;
+  static String? _activeFirstName;
+  static String? _activeLastName;
 
   static void setAuthToken(String token) {
     if (token.isNotEmpty) {
@@ -29,7 +31,7 @@ class ApiService {
     }
   }
 
-  static void setSessionContext({String? sessionId, String? phone}) {
+  static void setSessionContext({String? sessionId, String? phone, String? firstName, String? lastName}) {
     if (sessionId != null && sessionId.isNotEmpty) {
       _activeSessionId = sessionId;
       SharedPreferences.getInstance().then((p) => p.setString('app_client_session_id', sessionId)).catchError((_) => false);
@@ -38,9 +40,30 @@ class ApiService {
       _activeClientPhone = phone;
       SharedPreferences.getInstance().then((p) => p.setString('app_client_phone', phone)).catchError((_) => false);
     }
+    if (firstName != null && firstName.isNotEmpty) {
+      _activeFirstName = firstName;
+      SharedPreferences.getInstance().then((p) => p.setString('app_client_first_name', firstName)).catchError((_) => false);
+    }
+    if (lastName != null && lastName.isNotEmpty) {
+      _activeLastName = lastName;
+      SharedPreferences.getInstance().then((p) => p.setString('app_client_last_name', lastName)).catchError((_) => false);
+    }
   }
 
   static SharedPreferences? _prefs;
+
+  /// Generate or retrieve unique install UUID to track fresh installs and uninstalls
+  static Future<String> getOrGenerateInstallUuid() async {
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    _prefs = prefs;
+    String? uuid = prefs.getString('app_install_uuid');
+    if (uuid == null || uuid.isEmpty) {
+      uuid = 'inst_${DateTime.now().millisecondsSinceEpoch}_${(100000 + (DateTime.now().microsecond % 900000))}';
+      await prefs.setString('app_install_uuid', uuid);
+      await prefs.setBool('is_fresh_install', true);
+    }
+    return uuid;
+  }
 
   /// Flushes in-memory and persistent response caches and resets active server resolution
   static void clearAllCache() {
@@ -123,9 +146,17 @@ class ApiService {
           _prefs!.getString('session_id') ??
           _prefs!.getString('device_id');
       final token = _prefs!.getString('app_client_token');
+      final firstName = _prefs!.getString('app_client_first_name') ??
+          _prefs!.getString('first_name') ??
+          _prefs!.getString('user_name') ??
+          _prefs!.getString('name');
+      final lastName = _prefs!.getString('app_client_last_name') ??
+          _prefs!.getString('last_name');
 
       if (phone != null && phone.trim().isNotEmpty) _activeClientPhone = phone.trim();
       if (sessionId != null && sessionId.trim().isNotEmpty) _activeSessionId = sessionId.trim();
+      if (firstName != null && firstName.trim().isNotEmpty) _activeFirstName = firstName.trim();
+      if (lastName != null && lastName.trim().isNotEmpty) _activeLastName = lastName.trim();
       if (token != null && token.trim().isNotEmpty) _authToken = token.trim();
 
       // Probe live server settings
@@ -159,6 +190,8 @@ class ApiService {
     final headers = <String, String>{
       'Accept': 'application/json',
       'Content-Type': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 MBanglaPatenteApp/2.0',
+      'X-Requested-With': 'com.mbanglapatenteb.app',
     };
     if (_authToken != null && _authToken!.isNotEmpty) {
       headers['Authorization'] = 'Bearer $_authToken';
@@ -169,6 +202,12 @@ class ApiService {
     }
     if (_activeClientPhone != null && _activeClientPhone!.isNotEmpty) {
       headers['X-Client-Phone'] = _activeClientPhone!;
+    }
+    if (_activeFirstName != null && _activeFirstName!.isNotEmpty) {
+      headers['X-Client-First-Name'] = Uri.encodeComponent(_activeFirstName!);
+    }
+    if (_activeLastName != null && _activeLastName!.isNotEmpty) {
+      headers['X-Client-Last-Name'] = Uri.encodeComponent(_activeLastName!);
     }
     return headers;
   }
@@ -497,7 +536,13 @@ class ApiService {
   /// POST /api/v1/test/submit
   static Future<bool> submitTestResult(Map<String, dynamic> payload) async {
     try {
-      final response = await _postWithFallback('/test/submit', payload);
+      final authParams = await _getUserAuthParams();
+      final fullPayload = {
+        ...authParams,
+        ...payload,
+      };
+      final response = await _postWithFallback('/test/submit', fullPayload);
+      invalidateUserDataCache();
       return response != null && (response.statusCode == 200 || response.statusCode == 201);
     } catch (e) {
       debugPrint('Error submitting test result: $e');
@@ -812,20 +857,9 @@ class ApiService {
         _cachedLiveExamPool = uniqueQuestions;
         _saveToLocalStorage('scheda_pool', json.encode(uniqueQuestions));
 
-        // If >= 30, shuffle and pick 30
-        if (uniqueQuestions.length >= 30) {
-          final shuffled = List<dynamic>.from(uniqueQuestions)..shuffle();
-          return shuffled.take(30).toList();
-        }
-
-        // If fewer than 30 unique questions in database, pad to 30 so exam never exits early!
-        final List<dynamic> padded = List<dynamic>.from(uniqueQuestions);
-        int padIndex = 0;
-        while (padded.length < 30) {
-          padded.add(uniqueQuestions[padIndex % uniqueQuestions.length]);
-          padIndex++;
-        }
-        return padded;
+        // If >= 30, shuffle and pick 30; otherwise return all available questions without padding
+        final shuffled = List<dynamic>.from(uniqueQuestions)..shuffle();
+        return shuffled.length > 30 ? shuffled.take(30).toList() : shuffled;
       }
 
       return [];
@@ -880,7 +914,12 @@ class ApiService {
   /// POST /api/v1/scheda-esame/submit
   static Future<Map<String, dynamic>?> submitSchedaEsame(Map<String, dynamic> payload) async {
     try {
-      final response = await _postWithFallback('/scheda-esame/submit', payload);
+      final authParams = await _getUserAuthParams();
+      final fullPayload = {
+        ...authParams,
+        ...payload,
+      };
+      final response = await _postWithFallback('/scheda-esame/submit', fullPayload);
       invalidateUserDataCache();
       return _extractMap(response);
     } catch (e) {
@@ -1449,6 +1488,15 @@ class ApiService {
     try {
       final statusMap = await fetchClientStatus(sessionId: sessionId, phone: userPhone);
       if (statusMap != null) {
+        // 1. Check if user was deleted from admin panel
+        final bool isDeleted = statusMap['is_deleted'] == true || statusMap['status'] == 'deleted';
+        if (isDeleted) {
+          await prefs.setBool('app_client_is_deleted', true);
+          await prefs.setBool('app_client_is_active', false);
+          return 'deleted';
+        }
+        await prefs.setBool('app_client_is_deleted', false);
+
         String? serverExpiresAt = statusMap['expires_at']?.toString();
         if ((serverExpiresAt == null || serverExpiresAt.isEmpty) && statusMap['license'] is Map) {
           serverExpiresAt = statusMap['license']['expires_at']?.toString();
@@ -1461,15 +1509,23 @@ class ApiService {
         }
 
         final String sStatus = (statusMap['status'] ?? statusMap['license_status'] ?? '').toString().toLowerCase();
-        final bool serverExpired = sStatus == 'expired' || (serverDate != null && DateTime.now().isAfter(serverDate));
+        final bool serverExpired = sStatus == 'expired' || statusMap['is_expired'] == true || (serverDate != null && DateTime.now().isAfter(serverDate));
 
         if (serverExpired) {
           await prefs.setBool('app_client_is_active', false);
           return 'expired';
         }
 
-        final bool isActive = (sStatus == 'active' || statusMap['is_active'] == true) && !serverExpired;
+        final bool isUninstalled = statusMap['is_uninstalled'] == true || statusMap['requires_admin_reactivation'] == true;
+        if (isUninstalled) {
+          await prefs.setBool('app_client_is_uninstalled', true);
+          await prefs.setBool('app_client_is_active', false);
+          return 'inactive';
+        }
+
+        final bool isActive = (sStatus == 'active' || statusMap['is_active'] == true) && !serverExpired && !isUninstalled;
         if (isActive) {
+          await prefs.setBool('app_client_is_uninstalled', false);
           await prefs.setBool('app_client_is_active', true);
           await prefs.setBool('app_client_is_verified', true);
           return 'active';
@@ -1482,9 +1538,13 @@ class ApiService {
       debugPrint('License status check network note: $e');
     }
 
-    // Fallback: check cached active only if strictly not expired
+    // Fallback if offline/network error:
+    final bool cachedDeleted = prefs.getBool('app_client_is_deleted') ?? false;
+    if (cachedDeleted) return 'deleted';
+
     final bool cachedActive = prefs.getBool('app_client_is_active') ?? false;
-    if (cachedActive && !isExpiredLocally) {
+    final bool cachedUninstalled = prefs.getBool('app_client_is_uninstalled') ?? false;
+    if (cachedActive && !cachedUninstalled && !isExpiredLocally) {
       return 'active';
     }
 
@@ -1614,6 +1674,10 @@ class ApiService {
     required String phone,
     String? sessionId,
   }) async {
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    final installUuid = await getOrGenerateInstallUuid();
+    final isFreshInstall = prefs.getBool('is_fresh_install') ?? false;
+
     final payload = {
       'first_name': firstName,
       'firstName': firstName,
@@ -1623,6 +1687,8 @@ class ApiService {
       'phoneNumber': phone,
       'phone_number': phone,
       'mobile': phone,
+      'install_uuid': installUuid,
+      'is_fresh_install': isFreshInstall ? '1' : '0',
       if (sessionId != null && sessionId.isNotEmpty) ...{
         'session_id': sessionId,
         'sessionId': sessionId,
@@ -1640,6 +1706,11 @@ class ApiService {
           if (decoded['token'] != null) {
             setAuthToken(decoded['token'].toString());
           }
+          final isUninstalled = decoded['is_uninstalled'] == true || decoded['requires_admin_reactivation'] == true;
+          final isActive = decoded['is_active'] == true && !isUninstalled;
+          await prefs.setBool('app_client_is_uninstalled', isUninstalled);
+          await prefs.setBool('app_client_is_active', isActive);
+          await prefs.setBool('is_fresh_install', false);
           return decoded;
         }
       } catch (e) {
@@ -1656,6 +1727,11 @@ class ApiService {
           if (decoded['token'] != null) {
             setAuthToken(decoded['token'].toString());
           }
+          final isUninstalled = decoded['is_uninstalled'] == true || decoded['requires_admin_reactivation'] == true;
+          final isActive = decoded['is_active'] == true && !isUninstalled;
+          await prefs.setBool('app_client_is_uninstalled', isUninstalled);
+          await prefs.setBool('app_client_is_active', isActive);
+          await prefs.setBool('is_fresh_install', false);
           return decoded;
         }
       } catch (e) {
@@ -1898,6 +1974,7 @@ class ApiService {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setBool('app_client_is_active', true);
           await prefs.setBool('app_client_is_verified', true);
+          await prefs.setBool('app_client_is_uninstalled', false);
           if (licenseKey != null && licenseKey.isNotEmpty) {
             await prefs.setString('app_client_license_key', licenseKey);
             await prefs.setString('app_client_token', licenseKey);

@@ -62,10 +62,14 @@ class McqQuestion {
 
     final int rawGiusto = json['giusto_count'] is int
         ? json['giusto_count']
-        : int.tryParse(json['giusto_count']?.toString() ?? json['giustoCount']?.toString() ?? '0') ?? 0;
+        : (json['correct_count'] is int
+            ? json['correct_count']
+            : int.tryParse(json['giusto_count']?.toString() ?? json['giustoCount']?.toString() ?? json['correct_count']?.toString() ?? '0') ?? 0);
     final int rawSbagliato = json['sbagliato_count'] is int
         ? json['sbagliato_count']
-        : int.tryParse(json['sbagliato_count']?.toString() ?? json['sbagliatoCount']?.toString() ?? '0') ?? 0;
+        : (json['wrong_count'] is int
+            ? json['wrong_count']
+            : int.tryParse(json['sbagliato_count']?.toString() ?? json['sbagliatoCount']?.toString() ?? json['wrong_count']?.toString() ?? '0') ?? 0);
 
     String? rawImage = (
       json['image'] ??

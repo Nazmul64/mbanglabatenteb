@@ -78,6 +78,33 @@ class MainNavigationWrapper extends StatefulWidget {
 
 class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   bool _soundEnabled = true;
+  SharedPreferences? _cachedPrefs;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((p) {
+      if (mounted) {
+        setState(() {
+          _cachedPrefs = p;
+        });
+
+        // Background check client license status on launch
+        final phone = p.getString('app_client_phone');
+        final sessionId = p.getString('app_client_session_id');
+        if ((phone != null && phone.isNotEmpty) || (sessionId != null && sessionId.isNotEmpty)) {
+          ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId).then((status) {
+            if (!mounted) return;
+            if (status == 'deleted') {
+              _showUserDeletedDialog();
+            } else if (status == 'expired') {
+              _showLicenseRequiredDialog(isExpired: true);
+            }
+          }).catchError((_) {});
+        }
+      }
+    });
+  }
 
   void _toggleSound(bool enabled) {
     setState(() {
@@ -86,7 +113,7 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   }
 
   void _clearAllData() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = _cachedPrefs ?? await SharedPreferences.getInstance();
     await prefs.clear();
     ApiService.clearAllCache();
     setState(() {
@@ -95,13 +122,21 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
     });
   }
 
-  // --- Sub-Screen Navigation Helpers with Preloader & License Enforcement ---
+  // --- Sub-Screen Navigation Helpers with Zero-Time (0ms) Loading & License Enforcement ---
 
-  Future<void> _navigateToWithLoader(Widget targetScreen, {String title = 'পেজ লোড হচ্ছে...', bool isProtected = true}) async {
+  Future<void> _navigateToWithLoader(Widget targetScreen, {String title = '', bool isProtected = true}) async {
     if (isProtected) {
-      final prefs = await SharedPreferences.getInstance();
-      final phone = prefs.getString('app_client_phone');
-      final sessionId = prefs.getString('app_client_session_id');
+      final prefs = _cachedPrefs ?? await SharedPreferences.getInstance();
+      _cachedPrefs = prefs;
+
+      final bool isDeleted = prefs.getBool('app_client_is_deleted') ?? false;
+      if (isDeleted) {
+        if (mounted) _showUserDeletedDialog();
+        return;
+      }
+
+      final bool isUninstalled = prefs.getBool('app_client_is_uninstalled') ?? false;
+      final bool isActive = prefs.getBool('app_client_is_active') ?? false;
 
       final String? expiresAtStr = prefs.getString('app_client_expires_at');
       DateTime? expiresAt;
@@ -111,23 +146,32 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
 
       final bool isExpiredLocally = expiresAt != null && DateTime.now().isAfter(expiresAt);
       if (isExpiredLocally) {
-        await prefs.setBool('app_client_is_active', false);
+        prefs.setBool('app_client_is_active', false);
         if (mounted) _showLicenseRequiredDialog(isExpired: true);
         return;
       }
 
-      // Check server license status
-      final currentStatus = await ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId);
-      final bool active = (currentStatus == 'active');
-      if (!active) {
-        if (mounted) _showLicenseRequiredDialog(isExpired: currentStatus == 'expired');
+      if (!isActive || isUninstalled) {
+        if (mounted) _showLicenseRequiredDialog(isExpired: false);
         return;
       }
+
+      // Check server license status in the background without blocking screen navigation (0ms instant!)
+      final phone = prefs.getString('app_client_phone');
+      final sessionId = prefs.getString('app_client_session_id');
+      ApiService.checkLicenseStatus(userPhone: phone, sessionId: sessionId).then((currentStatus) {
+        if (currentStatus == 'deleted') {
+          prefs.setBool('app_client_is_deleted', true);
+          prefs.setBool('app_client_is_active', false);
+        } else if (currentStatus == 'expired' || currentStatus == 'revoked') {
+          prefs.setBool('app_client_is_active', false);
+        }
+      }).catchError((_) {});
     }
 
     if (!mounted) return;
 
-    // Instant, seamless navigation
+    // Instant, zero-delay navigation (0ms)
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => targetScreen),
@@ -220,6 +264,43 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
     );
   }
 
+  void _showUserDeletedDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.person_off_rounded, color: Colors.redAccent, size: 28),
+            SizedBox(width: 10),
+            Text('Account Deleted', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text(
+          'Already deleted your account. Please contact admin.',
+          style: TextStyle(fontSize: 14, height: 1.5, color: Colors.black87, fontWeight: FontWeight.w500),
+        ),
+        actions: [
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              _navigateToTutorChat();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2563EB),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+            ),
+            icon: const Icon(Icons.support_agent_rounded, size: 18),
+            label: const Text('Contact Admin', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showLicenseRequiredDialog({bool isExpired = false}) {
     showDialog(
       context: context,
@@ -230,13 +311,13 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
             Icon(isExpired ? Icons.timer_off_rounded : Icons.lock_rounded,
                  color: isExpired ? Colors.redAccent : Colors.amber, size: 28),
             const SizedBox(width: 10),
-            Text(isExpired ? 'লাইসেন্সের মেয়াদ শেষ' : 'লাইসেন্স আবশ্যক',
+            Text(isExpired ? 'License Expired' : 'লাইসেন্স আবশ্যক',
                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
           ],
         ),
         content: Text(
           isExpired
-              ? 'আপনার লাইসেন্সটির মেয়াদ শেষ হয়েছে। অ্যাপের প্র্যাকটিস টেস্ট ও সকল প্রিমিয়াম ফিচার ব্যবহার করতে নতুন লাইসেন্স কি প্রবেশ করান অথবা অ্যাডমিনের সাথে যোগাযোগ করুন।'
+              ? 'Please renew your license key. Support admin.'
               : 'এই ফিচারটি ব্যবহার করতে একটি সক্রিয় লাইসেন্স আবশ্যক। আপনি অ্যাডমিন থেকে লাইসেন্স কি পেয়ে থাকলে সরাসরি অ্যাক্টিভ করতে পারেন অথবা চ্যাটে যোগাযোগ করতে পারেন।',
           style: const TextStyle(fontSize: 13.5, height: 1.45, color: Colors.black87),
         ),
@@ -265,12 +346,13 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             ),
             icon: const Icon(Icons.support_agent_rounded, size: 18),
-            label: const Text('সাপোর্ট চ্যাট', style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
+            label: const Text('Support Admin', style: TextStyle(fontWeight: FontWeight.bold)),
         ],
       ),
     );
   }
+
+
 
   void _navigateToTutorials() {
     _navigateToWithLoader(const TutorialsScreen(), title: 'LEZIONI (ক্লাস) লোড হচ্ছে...', isProtected: true);

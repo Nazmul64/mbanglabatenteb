@@ -29,6 +29,7 @@ class TutorialsScreen extends StatefulWidget {
 }
 
 class _TutorialsScreenState extends State<TutorialsScreen> {
+  static List<LessonItem> _cachedLessons = [];
   List<LessonItem> _lessons = [];
   bool _isLoading = false;
 
@@ -42,13 +43,19 @@ class _TutorialsScreenState extends State<TutorialsScreen> {
   @override
   void initState() {
     super.initState();
+    if (_cachedLessons.isNotEmpty) {
+      _lessons = List.from(_cachedLessons);
+      _isLoading = false;
+    }
     _loadLectureClasses();
   }
 
   Future<void> _loadLectureClasses() async {
-    setState(() {
-      _isLoading = true;
-    });
+    if (_lessons.isEmpty) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
 
     final apiData = await ApiService.fetchClasses();
     final List<LessonItem> loaded = [];
@@ -73,8 +80,11 @@ class _TutorialsScreenState extends State<TutorialsScreen> {
     }
 
     if (mounted) {
+      if (loaded.isNotEmpty) {
+        _cachedLessons = List.from(loaded);
+      }
       setState(() {
-        _lessons = loaded;
+        _lessons = loaded.isNotEmpty ? loaded : _lessons;
         _isLoading = false;
       });
     }

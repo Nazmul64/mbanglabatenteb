@@ -10,24 +10,34 @@ class ManualeScreen extends StatefulWidget {
 }
 
 class _ManualeScreenState extends State<ManualeScreen> {
+  static List<dynamic> _cachedTopics = [];
   List<dynamic> _topics = [];
-  bool _isLoading = true;
+  bool _isLoading = false;
   String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
+    if (_cachedTopics.isNotEmpty) {
+      _topics = List.from(_cachedTopics);
+      _isLoading = false;
+    }
     _loadTopics();
   }
 
   Future<void> _loadTopics() async {
-    setState(() {
-      _isLoading = true;
-    });
+    if (_topics.isEmpty) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
     final topics = await ApiService.fetchManualeChapters();
     if (mounted) {
+      if (topics.isNotEmpty) {
+        _cachedTopics = List.from(topics);
+      }
       setState(() {
-        _topics = topics;
+        _topics = topics.isNotEmpty ? topics : _topics;
         _isLoading = false;
       });
     }

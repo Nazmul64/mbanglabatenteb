@@ -51,24 +51,35 @@ class ScegliSchedaScreen extends StatefulWidget {
 }
 
 class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
+  static List<String> _cachedCategories = [];
+  static final Map<String, int> _cachedChapterIdMap = {};
+  static final Map<String, List<SubTopic>> _subtopicsCache = {};
+
   late String _selectedCategory;
   late List<String> _categories;
   final Map<String, int> _chapterIdMap = {};
-  final Map<String, List<SubTopic>> _subtopicsCache = {};
   bool _isLoadingPages = false;
 
   @override
   void initState() {
     super.initState();
-    _categories = [];
-    _selectedCategory = 'Caricamento...';
+    if (_cachedCategories.isNotEmpty) {
+      _categories = List.from(_cachedCategories);
+      _chapterIdMap.addAll(_cachedChapterIdMap);
+      _selectedCategory = _categories.first;
+    } else {
+      _categories = [];
+      _selectedCategory = 'Caricamento...';
+    }
     _loadInitialData();
   }
 
   Future<void> _loadInitialData() async {
-    setState(() {
-      _isLoadingPages = true;
-    });
+    if (_categories.isEmpty) {
+      setState(() {
+        _isLoadingPages = true;
+      });
+    }
 
     final apiChapters = await ApiService.fetchChapters();
     if (mounted) {
@@ -82,6 +93,9 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
           return key;
         }).toList();
 
+        _cachedCategories = List.from(_categories);
+        _cachedChapterIdMap.addAll(_chapterIdMap);
+
         if (widget.initialChapterId != null) {
           final found = apiChapters.firstWhere(
             (c) => c['id'] == widget.initialChapterId || c['chapter_number'] == widget.initialChapterId,
@@ -92,10 +106,10 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
           final name = (found['name'] ?? found['title'] ?? 'Capitolo $id').toString();
           _selectedCategory = 'Capitolo $chapNum) $name';
           _chapterIdMap[_selectedCategory] = id;
-        } else {
+        } else if (!_categories.contains(_selectedCategory)) {
           _selectedCategory = _categories.first;
         }
-      } else {
+      } else if (_categories.isEmpty) {
         _categories = [];
         _selectedCategory = 'Nessun Capitolo Trovato';
       }
@@ -119,10 +133,15 @@ class _ScegliSchedaScreenState extends State<ScegliSchedaScreen> {
       }
     }
 
-    setState(() {
-      _isLoadingPages = true;
+    final hasCache = _subtopicsCache.containsKey(_selectedCategory) && _subtopicsCache[_selectedCategory]!.isNotEmpty;
+    if (!hasCache) {
+      setState(() {
+        _isLoadingPages = true;
+        _isSelectActive = false;
+      });
+    } else {
       _isSelectActive = false;
-    });
+    }
 
     final apiPages = await ApiService.fetchChapterPages(chapterId);
     if (mounted) {
