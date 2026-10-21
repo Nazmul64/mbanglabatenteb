@@ -347,6 +347,7 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
             ),
             icon: const Icon(Icons.support_agent_rounded, size: 18),
             label: const Text('Support Admin', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
         ],
       ),
     );
