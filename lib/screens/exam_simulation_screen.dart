@@ -189,8 +189,8 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
     List<ExamQuestion> loaded = [];
 
     try {
-      // Fetch live random questions combining Argomenti & Cartelli (always full 30 questions)
-      final apiData = await ApiService.generateSchedaEsame();
+      // Fetch live random questions combining Argomenti & Cartelli (up to 30 questions)
+      final apiData = await ApiService.generateSchedaEsame(forceRefresh: true);
       if (apiData.isNotEmpty) {
         for (int index = 0; index < apiData.length; index++) {
           final q = apiData[index];

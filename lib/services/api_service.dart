@@ -743,38 +743,38 @@ class ApiService {
 
   static List<dynamic>? _cachedLiveExamPool;
 
-  /// GET /api/v1/scheda-esame/generate with guaranteed 30 questions
+  /// GET /api/v1/scheda-esame/generate with up to 30 questions
   static Future<List<dynamic>> generateSchedaEsame({bool forceRefresh = false}) async {
     try {
-      // 1. If we have a cached live pool with at least 30 questions and not forcing refresh, pick 30 random questions instantly
-      if (!forceRefresh && _cachedLiveExamPool != null && _cachedLiveExamPool!.length >= 30) {
-        final shuffled = List<dynamic>.from(_cachedLiveExamPool!)..shuffle();
-        return shuffled.take(30).toList();
+      // 1. Try official endpoint first (always fresh, no cache)
+      final officialRes = await _getWithFallback('/scheda-esame/generate', useCache: false);
+      final officialList = _extractList(officialRes);
+      if (officialList.isNotEmpty) {
+        _cachedLiveExamPool = officialList;
+        _saveToLocalStorage('scheda_pool', json.encode(officialList));
+        final shuffled = List<dynamic>.from(officialList)..shuffle();
+        return shuffled.length > 30 ? shuffled.take(30).toList() : shuffled;
       }
 
-      // Check local storage for cached pool
+      // If server returned empty or offline, fallback to memory cache if available
+      if (!forceRefresh && _cachedLiveExamPool != null && _cachedLiveExamPool!.isNotEmpty) {
+        final shuffled = List<dynamic>.from(_cachedLiveExamPool!)..shuffle();
+        return shuffled.length > 30 ? shuffled.take(30).toList() : shuffled;
+      }
+
+      // Check local storage for offline cached pool
       if (!forceRefresh && _prefs != null) {
         final diskPoolRaw = _prefs!.getString('offline_cache_scheda_pool');
         if (diskPoolRaw != null && diskPoolRaw.isNotEmpty) {
           try {
             final decoded = json.decode(diskPoolRaw);
-            if (decoded is List && decoded.length >= 30) {
+            if (decoded is List && decoded.isNotEmpty) {
               _cachedLiveExamPool = decoded;
               final shuffled = List<dynamic>.from(decoded)..shuffle();
-              return shuffled.take(30).toList();
+              return shuffled.length > 30 ? shuffled.take(30).toList() : shuffled;
             }
           } catch (_) {}
         }
-      }
-
-      // 2. Try official endpoint first
-      final officialRes = await _getWithFallback('/scheda-esame/generate', useCache: !forceRefresh);
-      final officialList = _extractList(officialRes);
-      if (officialList.length >= 30) {
-        _cachedLiveExamPool = officialList;
-        _saveToLocalStorage('scheda_pool', json.encode(officialList));
-        final shuffled = List<dynamic>.from(officialList)..shuffle();
-        return shuffled.take(30).toList();
       }
 
       // 3. Parallel fetch all live MCQs from Argomenti and Cartelli
@@ -841,13 +841,15 @@ class ApiService {
 
       await Future.wait(fetchTasks);
 
-      // Deduplicate pool by question text / statement
+      // Deduplicate pool by unique ID and type (NOT by text string)
       final Map<String, dynamic> uniqueMap = {};
       for (var item in pool) {
         if (item is Map) {
-          final text = (item['italian'] ?? item['question'] ?? item['domanda'] ?? '').toString().trim();
-          if (text.isNotEmpty && !uniqueMap.containsKey(text)) {
-            uniqueMap[text] = item;
+          final qId = item['id'] ?? item['question_id'] ?? '';
+          final qType = item['type'] ?? (item['chapter_name']?.toString().toLowerCase().contains('cartell') == true ? 'cartelli' : 'argomenti');
+          final key = '${qType}_$qId';
+          if (!uniqueMap.containsKey(key)) {
+            uniqueMap[key] = item;
           }
         }
       }
