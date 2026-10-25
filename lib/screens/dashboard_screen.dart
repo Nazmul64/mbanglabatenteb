@@ -402,7 +402,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       HomeCardModel(id: 3, title: 'ARGOMENTI', subtitle: 'অধ্যায়সমূহ', screenKey: 'argomenti', iconClass: 'fa-solid fa-graduation-cap', orderIndex: 3, isActive: true),
       HomeCardModel(id: 4, title: 'E-CLASS', subtitle: 'অনলাইন ক্লাস', screenKey: 'eclass', iconClass: 'fa-solid fa-chalkboard-user', orderIndex: 4, isActive: true),
       HomeCardModel(id: 5, title: 'SFIDA', subtitle: 'চ্যালেঞ্জ', screenKey: 'sfida', iconClass: 'fa-solid fa-trophy', orderIndex: 5, isActive: true),
-      HomeCardModel(id: 6, title: 'SCHEDA ESAME', subtitle: 'পরীক্ষার শিট', screenKey: 'scheda-esame', iconClass: 'fa-solid fa-file-signature', orderIndex: 6, isActive: true),
+      HomeCardModel(id: 6, title: 'SCHEDA LIVE EXAM', subtitle: 'লাইভ এক্সাম পাস', screenKey: 'scheda-esame', iconClass: 'fa-solid fa-file-signature', orderIndex: 6, isActive: true),
       HomeCardModel(id: 7, title: 'WORD', subtitle: 'শব্দ তালিকা', screenKey: 'word', iconClass: 'fa-solid fa-book-open', orderIndex: 7, isActive: true),
       HomeCardModel(id: 8, title: 'CARTELLI', subtitle: 'ট্রাফিক সাইন', screenKey: 'cartelli', iconClass: 'fa-solid fa-map-signs', orderIndex: 8, isActive: true),
       HomeCardModel(id: 9, title: 'SAVED MCQS', subtitle: 'সেভ করা এমসিকিউ', screenKey: 'saved-mcqs', iconClass: 'fa-solid fa-bookmark', orderIndex: 9, isActive: true),
