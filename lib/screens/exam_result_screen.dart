@@ -218,9 +218,10 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
     final incorrect = widget.results.where((r) => r.isAttempted && !r.isCorrect).length;
     final noResponse = widget.results.where((r) => !r.isAttempted).length;
 
+    // User Rule: 27+ correct (out of 30) is Promosso/Pass (27, 28, 29, 30). 26 or less is Bocciato/Fail.
     final bool isPassed = total >= 30
-        ? (incorrect <= 3)
-        : (total > 0 && correct > incorrect && incorrect == 0);
+        ? (correct >= 27)
+        : (total > 0 && correct >= (total * 0.9).floor());
     final minutes = widget.durationSeconds ~/ 60;
     final seconds = widget.durationSeconds % 60;
 

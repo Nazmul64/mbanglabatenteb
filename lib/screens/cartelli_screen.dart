@@ -802,9 +802,9 @@ class _CartelliScreenState extends State<CartelliScreen> {
                       Text(
                         quiz.id,
                         style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: quiz.isSelected ? const Color(0xFF16A34A) : (isDark ? Colors.white : Colors.black87),
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: quiz.isSelected ? const Color(0xFF16A34A) : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569)),
                         ),
                       ),
                       if (quiz.isSelected) ...[
@@ -893,8 +893,10 @@ class _CartelliScreenState extends State<CartelliScreen> {
                             children: HtmlTextHelper.buildParsedStatementSpans(
                               statement: quiz.italian,
                               isDark: isDark,
-                              fontSize: 14.5,
+                              fontSize: 16.0,
                               height: 1.45,
+                              textColor: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155),
+                              underlineColor: isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569),
                               vocabulary: quiz.vocabulary,
                               onTapWord: (rawWord, cleanWord) {
                                 String? vocabImage;
@@ -1144,7 +1146,7 @@ class _CartelliScreenState extends State<CartelliScreen> {
                     children: [
                       Text(
                         '(TU) Hai risposto:',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white70 : Colors.black87),
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569)),
                       ),
                       const SizedBox(height: 4),
                       Row(

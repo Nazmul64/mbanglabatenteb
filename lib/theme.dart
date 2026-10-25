@@ -101,7 +101,13 @@ class AppTheme {
         primary: primaryLight,
         secondary: primaryLight,
         surface: cardLight,
-        onSurface: Color(0xFF0F172A),
+        onSurface: Color(0xFF334155),
+      ),
+      textTheme: const TextTheme(
+        bodyLarge: TextStyle(color: Color(0xFF334155)),
+        bodyMedium: TextStyle(color: Color(0xFF475569)),
+        titleLarge: TextStyle(color: Color(0xFF334155), fontWeight: FontWeight.bold),
+        titleMedium: TextStyle(color: Color(0xFF475569), fontWeight: FontWeight.w600),
       ),
       cardTheme: CardThemeData(
         color: cardLight,
@@ -119,7 +125,7 @@ class AppTheme {
         titleTextStyle: TextStyle(
           fontSize: 20,
           fontWeight: FontWeight.w900,
-          color: Color(0xFF0F172A),
+          color: Color(0xFF334155),
           letterSpacing: 0.8,
         ),
       ),

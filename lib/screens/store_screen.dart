@@ -19,16 +19,9 @@ class _StoreScreenState extends State<StoreScreen> with SingleTickerProviderStat
     _rotationController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
-    )..repeat();
-
-    // Auto complete loading simulation
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
-        setState(() {
-          _loadingComplete = true;
-        });
-      }
-    });
+    );
+    // Instant 0ms loading
+    _loadingComplete = true;
   }
 
   @override

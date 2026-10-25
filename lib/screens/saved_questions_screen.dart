@@ -433,6 +433,26 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
         margin: const EdgeInsets.only(bottom: 8, right: 8),
         child: ElevatedButton(
           onPressed: () {
+            final selected = _quizzes.where((q) => q.isSelected).toList();
+            final targetList = selected.isNotEmpty ? selected : _quizzes;
+            if (targetList.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('কোনো প্রশ্ন পাওয়া যায়নি')),
+              );
+              return;
+            }
+            final customQuestions = targetList.map((q) => McqQuestion(
+              id: q.rawId,
+              chapter: 1,
+              chapterName: 'Saved MCQs',
+              italian: q.italian,
+              bangla: q.bangla,
+              isVero: q.isVero,
+              image: q.image,
+              audio: q.audioUrl,
+              vocabulary: q.vocabulary,
+            )).toList();
+
             showDialog(
               context: context,
               builder: (context) => InstantCorrectionDialog(
@@ -440,7 +460,10 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => const ExamSimulationScreen(),
+                      builder: (context) => ExamSimulationScreen(
+                        customQuestions: customQuestions,
+                        examTitle: '${widget.title} Quiz (${customQuestions.length} Quesiti)',
+                      ),
                     ),
                   );
                 },
@@ -533,11 +556,11 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
     if (quiz.showBangla) {
       return Text(
         rawText,
-        style: TextStyle(
-          fontSize: 14.5,
+        style: const TextStyle(
+          fontSize: 15.5,
           fontWeight: FontWeight.w600,
           height: 1.45,
-          color: Colors.green.shade700,
+          color: Color(0xFF15803D),
         ),
       );
     }
@@ -545,8 +568,10 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
     final spans = HtmlTextHelper.buildParsedStatementSpans(
       statement: rawText,
       isDark: isDark,
-      fontSize: 14.5,
+      fontSize: 16.0,
       height: 1.45,
+      textColor: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155),
+      underlineColor: isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569),
       vocabulary: quiz.vocabulary,
       onTapWord: (rawWord, cleanWord) {
         String? vocabImage;
@@ -669,9 +694,9 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
                       Text(
                         quiz.id,
                         style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: quiz.isSelected ? const Color(0xFF16A34A) : (isDark ? Colors.white : Colors.black87),
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: quiz.isSelected ? const Color(0xFF16A34A) : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569)),
                         ),
                       ),
                       if (quiz.isSelected) ...[
@@ -682,27 +707,17 @@ class _SavedQuestionsScreenState extends State<SavedQuestionsScreen> {
                   ),
                   Row(
                     children: [
-                      // Answer Pill (VERO / FALSO) when Eye button is clicked
+                      // Prominent V / F badge matching reference app screenshot
                       if (quiz.showAnswer) ...[
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          margin: const EdgeInsets.only(right: 6),
-                          decoration: BoxDecoration(
-                            color: quiz.isVero
-                                ? const Color(0xFF22C55E).withOpacity(0.15)
-                                : Colors.red.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: quiz.isVero ? const Color(0xFF22C55E) : Colors.red,
-                              width: 1.2,
-                            ),
-                          ),
+                          margin: const EdgeInsets.only(right: 8),
                           child: Text(
-                            quiz.isVero ? 'VERO (সঠিক) ✓' : 'FALSO (মিথ্যা) ✗',
+                            quiz.isVero ? 'V' : 'F',
                             style: TextStyle(
-                              fontSize: 11,
+                              fontSize: 24,
                               fontWeight: FontWeight.w900,
-                              color: quiz.isVero ? const Color(0xFF16A34A) : Colors.red.shade700,
+                              color: quiz.isVero ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
+                              letterSpacing: 0.5,
                             ),
                           ),
                         ),

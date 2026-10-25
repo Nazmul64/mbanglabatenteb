@@ -1,8 +1,18 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import '../models/question_database.dart';
 
 class HtmlTextHelper {
+  /// Italian grammatical stopwords/particles that shouldn't have dictionary underlines
+  static const Set<String> italianStopwords = {
+    'il', 'lo', 'la', 'i', 'gli', 'le', "l'", 'un', 'uno', 'una', "un'",
+    'di', 'a', 'da', 'in', 'con', 'su', 'per', 'tra', 'fra',
+    'e', 'ed', 'o', 'od', 'né', 'se', 'non', 'ne', 'ci', 'vi', 'si',
+    'mi', 'ti', 'del', 'dello', 'della', 'dei', 'degli', 'delle',
+    'al', 'allo', 'alla', 'ai', 'agli', 'alle', 'dal', 'dallo', 'dalla',
+    'dai', 'dagli', 'dalle', 'nel', 'nello', 'nella', 'nei', 'negli', 'nelle',
+    'sul', 'sullo', 'sulla', 'sui', 'sugli', 'sulle', 'col', 'coi', 'che'
+  };
+
   /// Strip all HTML tags from a text string (useful for TTS or plain text display)
   static String stripHtml(String text) {
     return text
@@ -15,13 +25,13 @@ class HtmlTextHelper {
   }
 
   /// Parse text containing `<u>...</u>` and vocabulary phrases into InlineSpans.
-  /// Underlines are rendered in solid BLACK in light mode (`Colors.black87`) or white/light grey in dark mode.
-  /// Multi-word phrases inside `<u>...</u>` or matching vocabulary entries are treated as single cohesive entities.
+  /// Styling matches modern premium typography: Slate Charcoal (never pitch black)
+  /// with underlines appearing ONLY on explicitly underlined words from Admin Panel.
   static List<InlineSpan> buildParsedStatementSpans({
     required String statement,
     required bool isDark,
     required void Function(String phrase, String cleanPhrase) onTapWord,
-    double fontSize = 15.0,
+    double fontSize = 16.0,
     double height = 1.45,
     Color? underlineColor,
     Color? textColor,
@@ -30,9 +40,11 @@ class HtmlTextHelper {
     List<dynamic>? vocabulary,
   }) {
     final List<InlineSpan> spans = [];
-    // Underlines are strictly BLACK in light mode, White/LightGrey in dark mode
-    final activeUnderlineColor = underlineColor ?? (isDark ? Colors.white70 : Colors.black87);
-    final activeTextColor = textColor ?? (isDark ? Colors.white : const Color(0xFF1E293B));
+    final activeUnderlineColor = underlineColor ?? (isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569));
+    final activeTextColor = textColor ?? (isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155));
+    final effectiveNormalWeight = normalFontWeight ?? FontWeight.w500;
+    // Underlined words must NOT be bold - keep normal font weight identical to surrounding text
+    final effectiveUnderlinedWeight = underlinedFontWeight ?? effectiveNormalWeight;
 
     // 1. Normalize line breaks and multiple spaces
     String cleanText = statement
@@ -49,7 +61,7 @@ class HtmlTextHelper {
     final matches = regExp.allMatches(cleanText);
 
     if (matches.isEmpty) {
-      // If no <u> tags, parse text matching against multi-word vocabulary phrases & words (at most once per phrase)
+      // If no <u> tags, check if specific vocabulary words from admin panel should be underlined
       final textWithoutHtml = cleanText.replaceAll(RegExp(r'<[^>]*>'), '');
       spans.addAll(_buildVocabularyAwareSpans(
         text: textWithoutHtml,
@@ -58,8 +70,8 @@ class HtmlTextHelper {
         height: height,
         underlineColor: activeUnderlineColor,
         textColor: activeTextColor,
-        normalFontWeight: normalFontWeight,
-        underlinedFontWeight: underlinedFontWeight,
+        normalFontWeight: effectiveNormalWeight,
+        underlinedFontWeight: effectiveUnderlinedWeight,
         vocabulary: vocabulary,
         onTapWord: onTapWord,
       ));
@@ -68,7 +80,7 @@ class HtmlTextHelper {
 
     int lastIndex = 0;
     for (final match in matches) {
-      // Process normal text BEFORE <u> tag without duplicate underlines
+      // Process normal text BEFORE <u> tag - NO UNDERLINE
       if (match.start > lastIndex) {
         final normalSegment = cleanText.substring(lastIndex, match.start).replaceAll(RegExp(r'<[^>]*>'), '');
         if (normalSegment.isNotEmpty) {
@@ -77,21 +89,20 @@ class HtmlTextHelper {
             fontSize: fontSize,
             height: height,
             textColor: activeTextColor,
-            normalFontWeight: normalFontWeight,
+            normalFontWeight: effectiveNormalWeight,
             onTapWord: onTapWord,
           ));
         }
       }
 
-      // Process text INSIDE <u> tag (Only the explicitly tagged phrase is underlined)
+      // Process text INSIDE <u> tag - UNDERLINED
       final rawInner = match.group(1) ?? '';
       final underlinedContent = rawInner.replaceAll(RegExp(r'<[^>]*>'), '').trim();
 
       if (underlinedContent.isNotEmpty) {
         final cleanPhrase = underlinedContent.toLowerCase().replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '').trim();
-
-        // Split phrase into words but underline them together
         final phraseWords = underlinedContent.split(RegExp(r'\s+'));
+
         for (int w = 0; w < phraseWords.length; w++) {
           final word = phraseWords[w];
           if (word.isEmpty) continue;
@@ -102,22 +113,43 @@ class HtmlTextHelper {
               style: TextStyle(
                 fontSize: fontSize,
                 height: height,
-                fontWeight: underlinedFontWeight ?? FontWeight.bold,
+                fontWeight: effectiveUnderlinedWeight,
                 color: activeTextColor,
                 decoration: TextDecoration.underline,
                 decorationColor: activeUnderlineColor,
-                decorationThickness: 1.8,
+                decorationThickness: 1.3,
               ),
               recognizer: TapGestureRecognizer()
                 ..onTap = () => onTapWord(underlinedContent, cleanPhrase),
             ),
           );
 
-          // Add space between words
+          if (w < phraseWords.length - 1) {
+            spans.add(
+              TextSpan(
+                text: ' ',
+                style: TextStyle(
+                  fontSize: fontSize,
+                  height: height,
+                  color: activeTextColor,
+                  decoration: TextDecoration.none,
+                ),
+              ),
+            );
+          }
+        }
+
+        // If the original tag had trailing space or text after tag starts without space, keep separation clean
+        if (rawInner.endsWith(' ') || (match.end < cleanText.length && !cleanText.substring(match.end).startsWith(' '))) {
           spans.add(
             TextSpan(
               text: ' ',
-              style: TextStyle(fontSize: fontSize, height: height),
+              style: TextStyle(
+                fontSize: fontSize,
+                height: height,
+                color: activeTextColor,
+                decoration: TextDecoration.none,
+              ),
             ),
           );
         }
@@ -126,7 +158,7 @@ class HtmlTextHelper {
       lastIndex = match.end;
     }
 
-    // Process text AFTER last <u> tag without duplicate underlines
+    // Process text AFTER last <u> tag - NO UNDERLINE
     if (lastIndex < cleanText.length) {
       final remainingSegment = cleanText.substring(lastIndex).replaceAll(RegExp(r'<[^>]*>'), '');
       if (remainingSegment.isNotEmpty) {
@@ -135,7 +167,7 @@ class HtmlTextHelper {
           fontSize: fontSize,
           height: height,
           textColor: activeTextColor,
-          normalFontWeight: normalFontWeight,
+          normalFontWeight: effectiveNormalWeight,
           onTapWord: onTapWord,
         ));
       }
@@ -144,7 +176,7 @@ class HtmlTextHelper {
     return spans;
   }
 
-  /// Highlight words and multi-word phrases from vocabulary & glossary
+  /// Highlight only explicitly registered vocabulary words from admin panel
   static List<InlineSpan> _buildVocabularyAwareSpans({
     required String text,
     required bool isDark,
@@ -152,14 +184,14 @@ class HtmlTextHelper {
     required double height,
     required Color underlineColor,
     required Color textColor,
-    FontWeight? normalFontWeight,
-    FontWeight? underlinedFontWeight,
+    required FontWeight normalFontWeight,
+    required FontWeight underlinedFontWeight,
     List<dynamic>? vocabulary,
     required void Function(String phrase, String cleanPhrase) onTapWord,
   }) {
     final List<InlineSpan> spans = [];
 
-    // Collect all candidate phrases (both multi-word and single-word) from vocabulary and globalGlossary
+    // Collect candidate multi-word phrases strictly from question vocabulary
     final List<String> candidatePhrases = [];
 
     if (vocabulary != null && vocabulary.isNotEmpty) {
@@ -173,33 +205,8 @@ class HtmlTextHelper {
       }
     }
 
-    // Also include global glossary phrases that exist in the text
-    final lowerText = text.toLowerCase();
-    for (final k in QuestionDatabase.globalGlossary.keys) {
-      if (k.contains(' ') && lowerText.contains(k.toLowerCase())) {
-        if (!candidatePhrases.any((p) => p.toLowerCase() == k.toLowerCase())) {
-          candidatePhrases.add(k);
-        }
-      }
-    }
-
-    // Sort phrases by length descending (longest phrase first) so multi-word matches take precedence
     candidatePhrases.sort((a, b) => b.length.compareTo(a.length));
 
-    if (candidatePhrases.isEmpty) {
-      // If no phrases, split by words and render normally
-      return _renderPlainWords(
-        text: text,
-        fontSize: fontSize,
-        height: height,
-        textColor: textColor,
-        normalFontWeight: normalFontWeight,
-        onTapWord: onTapWord,
-      );
-    }
-
-    // Find non-overlapping occurrences of phrases in the text (each matched phrase at most once)
-    final Set<String> matchedPhrases = {};
     int cursor = 0;
     while (cursor < text.length) {
       int bestMatchStart = -1;
@@ -207,7 +214,6 @@ class HtmlTextHelper {
       String? bestMatchedPhrase;
 
       for (final phrase in candidatePhrases) {
-        if (matchedPhrases.contains(phrase.toLowerCase())) continue;
         final pattern = RegExp(r'\b' + RegExp.escape(phrase) + r'\b', caseSensitive: false);
         final match = pattern.matchAsPrefix(text, cursor);
         if (match != null) {
@@ -219,8 +225,6 @@ class HtmlTextHelper {
       }
 
       if (bestMatchedPhrase != null && bestMatchStart == cursor) {
-        matchedPhrases.add(bestMatchedPhrase.toLowerCase());
-        // Matched a phrase starting right at cursor
         final cleanPhrase = bestMatchedPhrase.toLowerCase().replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '').trim();
         final phraseWords = bestMatchedPhrase.split(RegExp(r'\s+'));
 
@@ -234,11 +238,11 @@ class HtmlTextHelper {
               style: TextStyle(
                 fontSize: fontSize,
                 height: height,
-                fontWeight: underlinedFontWeight ?? FontWeight.bold,
+                fontWeight: underlinedFontWeight,
                 color: textColor,
                 decoration: TextDecoration.underline,
                 decorationColor: underlineColor,
-                decorationThickness: 1.8,
+                decorationThickness: 1.3,
               ),
               recognizer: TapGestureRecognizer()
                 ..onTap = () => onTapWord(bestMatchedPhrase!, cleanPhrase),
@@ -249,7 +253,12 @@ class HtmlTextHelper {
             spans.add(
               TextSpan(
                 text: ' ',
-                style: TextStyle(fontSize: fontSize, height: height),
+                style: TextStyle(
+                  fontSize: fontSize,
+                  height: height,
+                  color: textColor,
+                  decoration: TextDecoration.none,
+                ),
               ),
             );
           }
@@ -257,26 +266,28 @@ class HtmlTextHelper {
 
         cursor = bestMatchEnd;
         if (cursor < text.length && text[cursor] == ' ') {
-          spans.add(TextSpan(text: ' ', style: TextStyle(fontSize: fontSize, height: height)));
+          spans.add(TextSpan(text: ' ', style: TextStyle(fontSize: fontSize, height: height, color: textColor, decoration: TextDecoration.none)));
           cursor++;
         }
       } else {
-        // Move forward by one word
+        // Single word processing - Plain word with NO underline
         final nextSpace = text.indexOf(' ', cursor);
         final endOfWord = nextSpace == -1 ? text.length : nextSpace;
         final singleWord = text.substring(cursor, endOfWord);
 
         if (singleWord.trim().isNotEmpty) {
           final cleanWord = singleWord.toLowerCase().replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-          
-          bool isVocabSingle = false;
-          for (final p in candidatePhrases) {
-            if (!matchedPhrases.contains(p.toLowerCase()) &&
-                (p.toLowerCase() == singleWord.toLowerCase() || p.toLowerCase() == cleanWord)) {
-              isVocabSingle = true;
-              matchedPhrases.add(p.toLowerCase());
-              break;
-            }
+
+          // Underline ONLY if explicitly registered in question's vocabulary list
+          bool isExplicitVocab = false;
+          if (vocabulary != null && vocabulary.isNotEmpty) {
+            isExplicitVocab = vocabulary.any((v) {
+              if (v is Map) {
+                final it = (v['italian'] ?? v['word'] ?? v['italian_word'] ?? '').toString().trim().toLowerCase();
+                return it.isNotEmpty && (it == cleanWord || it == singleWord.toLowerCase().trim());
+              }
+              return false;
+            });
           }
 
           spans.add(
@@ -285,13 +296,11 @@ class HtmlTextHelper {
               style: TextStyle(
                 fontSize: fontSize,
                 height: height,
-                fontWeight: isVocabSingle
-                    ? (underlinedFontWeight ?? FontWeight.bold)
-                    : (normalFontWeight ?? FontWeight.w600),
+                fontWeight: isExplicitVocab ? underlinedFontWeight : normalFontWeight,
                 color: textColor,
-                decoration: isVocabSingle ? TextDecoration.underline : TextDecoration.none,
-                decorationColor: isVocabSingle ? underlineColor : null,
-                decorationThickness: 1.8,
+                decoration: isExplicitVocab ? TextDecoration.underline : TextDecoration.none,
+                decorationColor: isExplicitVocab ? underlineColor : null,
+                decorationThickness: 1.3,
               ),
               recognizer: TapGestureRecognizer()
                 ..onTap = () => onTapWord(singleWord, cleanWord),
@@ -301,7 +310,7 @@ class HtmlTextHelper {
 
         cursor = endOfWord;
         if (cursor < text.length && text[cursor] == ' ') {
-          spans.add(TextSpan(text: ' ', style: TextStyle(fontSize: fontSize, height: height)));
+          spans.add(TextSpan(text: ' ', style: TextStyle(fontSize: fontSize, height: height, color: textColor, decoration: TextDecoration.none)));
           cursor++;
         }
       }
@@ -310,12 +319,13 @@ class HtmlTextHelper {
     return spans;
   }
 
+  /// Plain words outside of `<u>...</u>` - NEVER underlined!
   static List<InlineSpan> _renderPlainWords({
     required String text,
     required double fontSize,
     required double height,
     required Color textColor,
-    FontWeight? normalFontWeight,
+    required FontWeight normalFontWeight,
     required void Function(String phrase, String cleanPhrase) onTapWord,
   }) {
     final List<InlineSpan> spans = [];
@@ -326,14 +336,16 @@ class HtmlTextHelper {
       if (word.isEmpty) continue;
 
       final cleanWord = word.toLowerCase().replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+
       spans.add(
         TextSpan(
           text: word,
           style: TextStyle(
             fontSize: fontSize,
             height: height,
-            fontWeight: normalFontWeight ?? FontWeight.w600,
+            fontWeight: normalFontWeight,
             color: textColor,
+            decoration: TextDecoration.none, // Crucial: Plain words NEVER have underline
           ),
           recognizer: TapGestureRecognizer()
             ..onTap = () => onTapWord(word, cleanWord),
@@ -344,7 +356,12 @@ class HtmlTextHelper {
         spans.add(
           TextSpan(
             text: ' ',
-            style: TextStyle(fontSize: fontSize, height: height),
+            style: TextStyle(
+              fontSize: fontSize,
+              height: height,
+              color: textColor,
+              decoration: TextDecoration.none,
+            ),
           ),
         );
       }

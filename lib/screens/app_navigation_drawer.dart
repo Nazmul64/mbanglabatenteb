@@ -9,6 +9,7 @@ class AppNavigationDrawer extends StatefulWidget {
   final VoidCallback? onTapCartelli;
   final VoidCallback? onTapSavedQuestions;
   final VoidCallback? onTapNotedQuestions;
+  final VoidCallback? onTapSchedaEsame;
   final VoidCallback? onTapProfile;
 
   const AppNavigationDrawer({
@@ -19,6 +20,7 @@ class AppNavigationDrawer extends StatefulWidget {
     this.onTapCartelli,
     this.onTapSavedQuestions,
     this.onTapNotedQuestions,
+    this.onTapSchedaEsame,
     this.onTapProfile,
   });
 
@@ -264,6 +266,18 @@ class _AppNavigationDrawerState extends State<AppNavigationDrawer> {
                       onTap: () {
                         Navigator.pop(context);
                         widget.onTapNotedQuestions!();
+                      },
+                    ),
+
+                  if (widget.onTapSchedaEsame != null)
+                    _buildDrawerItem(
+                      context: context,
+                      icon: Icons.assignment_turned_in_rounded,
+                      iconColor: const Color(0xFF22C55E),
+                      title: 'পাস করা পরীক্ষার শিট (Scheda Esame)',
+                      onTap: () {
+                        Navigator.pop(context);
+                        widget.onTapSchedaEsame!();
                       },
                     ),
 

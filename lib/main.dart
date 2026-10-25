@@ -18,6 +18,7 @@ import 'screens/social_screen.dart';
 import 'screens/translation_screen.dart';
 import 'screens/qr_scanner_dialog.dart';
 import 'screens/app_navigation_drawer.dart';
+import 'screens/scheda_esame_list_screen.dart';
 import 'services/api_service.dart';
 import 'models/bookmark_manager.dart';
 
@@ -395,7 +396,11 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   }
 
   void _navigateToQuiz() {
-    _navigateToWithLoader(const ExamSimulationScreen(), title: 'SCHEDA ESAME লোড হচ্ছে...', isProtected: true);
+    _navigateToWithLoader(const ExamSimulationScreen(), title: 'TEST (সিমুলেশন টেস্ট) লোড হচ্ছে...', isProtected: true);
+  }
+
+  void _navigateToSchedaEsameList() {
+    _navigateToWithLoader(const SchedaEsameListScreen(), title: 'SCHEDA ESAME (পাস করা শিট) লোড হচ্ছে...', isProtected: true);
   }
 
   void _navigateToDictionary() {
@@ -752,6 +757,7 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
         onTapCartelli: _navigateToCartelli,
         onTapSavedQuestions: _navigateToSavedQuestions,
         onTapNotedQuestions: _navigateToNotedQuestions,
+        onTapSchedaEsame: _navigateToSchedaEsameList,
         onTapProfile: _navigateToProfile,
       ),
       body: Stack(
@@ -764,6 +770,7 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
               onTapQuotes: _navigateToQuotes,
               onTapTextAnalyzer: _navigateToTextAnalyzer,
               onTapQuiz: _navigateToQuiz,
+              onTapSchedaEsame: _navigateToSchedaEsameList,
               onTapDictionary: _navigateToDictionary,
               onTapWords: _navigateToWords,
               onTapProfile: _navigateToProfile,

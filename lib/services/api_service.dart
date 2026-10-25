@@ -288,13 +288,58 @@ class ApiService {
 
     final cacheKey = '$endpoint?${effectiveParams.entries.map((e) => '${e.key}=${e.value}').join('&')}';
     
+    // 0. ZERO-DELAY CACHE-FIRST (0ms Instant Loading): Return cached response immediately and revalidate in background
+    if (useCache) {
+      if (_apiResponseCache.containsKey(cacheKey)) {
+        final cachedResp = _apiResponseCache[cacheKey]!;
+        unawaited(() async {
+          try {
+            final networkParams = Map<String, String>.from(effectiveParams);
+            networkParams['_t'] = DateTime.now().millisecondsSinceEpoch.toString();
+            if (_resolvedBaseUrl != null) {
+              final uri = Uri.parse('$_resolvedBaseUrl$endpoint').replace(queryParameters: networkParams.isNotEmpty ? networkParams : null);
+              final resp = await http.get(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 4000));
+              if (resp.statusCode == 200 && resp.body.isNotEmpty) {
+                _apiResponseCache[cacheKey] = resp;
+                _saveToLocalStorage(cacheKey, resp.body);
+              }
+            }
+          } catch (_) {}
+        }());
+        return cachedResp;
+      }
+
+      if (_prefs != null) {
+        final diskBody = _prefs!.getString('offline_cache_$cacheKey');
+        if (diskBody != null && diskBody.isNotEmpty) {
+          final resp = http.Response(diskBody, 200, headers: {'content-type': 'application/json'});
+          _apiResponseCache[cacheKey] = resp;
+          unawaited(() async {
+            try {
+              final networkParams = Map<String, String>.from(effectiveParams);
+              networkParams['_t'] = DateTime.now().millisecondsSinceEpoch.toString();
+              if (_resolvedBaseUrl != null) {
+                final uri = Uri.parse('$_resolvedBaseUrl$endpoint').replace(queryParameters: networkParams.isNotEmpty ? networkParams : null);
+                final r = await http.get(uri, headers: defaultHeaders).timeout(const Duration(milliseconds: 4000));
+                if (r.statusCode == 200 && r.body.isNotEmpty) {
+                  _apiResponseCache[cacheKey] = r;
+                  _saveToLocalStorage(cacheKey, r.body);
+                }
+              }
+            } catch (_) {}
+          }());
+          return resp;
+        }
+      }
+    }
+
     // Add cache-busting timestamp param to ensure completely fresh live data from server
     final networkParams = Map<String, String>.from(effectiveParams);
     networkParams['_t'] = DateTime.now().millisecondsSinceEpoch.toString();
 
     final headers = defaultHeaders;
 
-    // 1. NETWORK-FIRST: Try primary resolved URL first with 4s timeout
+    // 1. Try primary resolved URL first with 4s timeout
     if (_resolvedBaseUrl != null) {
       try {
         final uri = Uri.parse('$_resolvedBaseUrl$endpoint').replace(queryParameters: networkParams.isNotEmpty ? networkParams : null);
@@ -309,7 +354,7 @@ class ApiService {
       } catch (_) {}
     }
 
-    // 2. NETWORK-FIRST FALLBACK: Fast parallel race across candidate base URLs
+    // 2. Fast parallel race across candidate base URLs
     final completer = Completer<http.Response?>();
     int pending = candidateBaseUrls.length;
 
@@ -339,7 +384,7 @@ class ApiService {
       return networkResult;
     }
 
-    // 3. OFFLINE FALLBACK: If network is offline or unreachable, serve from cache
+    // 3. Fallback: If network is offline, serve from cache if available
     if (useCache) {
       if (_apiResponseCache.containsKey(cacheKey)) {
         return _apiResponseCache[cacheKey];
@@ -742,7 +787,10 @@ class ApiService {
   static Future<List<dynamic>> generateSchedaEsame({bool forceRefresh = false}) async {
     try {
       // 1. Try official endpoint first (always fresh, no cache)
-      final officialRes = await _getWithFallback('/scheda-esame/generate', useCache: false);
+      final authParams = await getUserAuthParams();
+      final queryString = Uri(queryParameters: authParams).query;
+      final endpoint = queryString.isNotEmpty ? '/scheda-esame/generate?$queryString' : '/scheda-esame/generate';
+      final officialRes = await _getWithFallback(endpoint, useCache: false);
       final officialList = _extractList(officialRes);
       if (officialList.isNotEmpty) {
         _cachedLiveExamPool = officialList;
@@ -921,6 +969,42 @@ class ApiService {
       return _extractMap(response);
     } catch (e) {
       debugPrint('Error submitting scheda esame: $e');
+      return null;
+    }
+  }
+
+  /// GET /api/v1/scheda-esame/passed-list
+  static Future<List<dynamic>> fetchPassedExams({String query = ''}) async {
+    try {
+      final endpoint = query.isNotEmpty
+          ? '/scheda-esame/passed-list?search=${Uri.encodeComponent(query)}'
+          : '/scheda-esame/passed-list';
+      final response = await _getWithFallback(endpoint, useCache: false);
+      final list = _extractList(response);
+      if (list.isNotEmpty) return list;
+
+      final fallbackEndpoint = query.isNotEmpty
+          ? '/exams?search=${Uri.encodeComponent(query)}'
+          : '/exams';
+      final fallbackRes = await _getWithFallback(fallbackEndpoint, useCache: false);
+      return _extractList(fallbackRes);
+    } catch (e) {
+      debugPrint('Error fetching passed exams: $e');
+      return [];
+    }
+  }
+
+  /// GET /api/v1/scheda-esame/sheet/{id}
+  static Future<Map<String, dynamic>?> fetchExamSheetDetails(int id) async {
+    try {
+      final response = await _getWithFallback('/scheda-esame/sheet/$id', useCache: false);
+      final map = _extractMap(response);
+      if (map != null && map.isNotEmpty) return map;
+
+      final fallbackRes = await _getWithFallback('/exams/$id', useCache: false);
+      return _extractMap(fallbackRes);
+    } catch (e) {
+      debugPrint('Error fetching exam sheet details: $e');
       return null;
     }
   }
@@ -1516,6 +1600,13 @@ class ApiService {
           await prefs.setBool('app_client_is_verified', true);
           return 'active';
         } else {
+          final bool cachedActive = prefs.getBool('app_client_is_active') ?? false;
+          final String? expStr = prefs.getString('app_client_expires_at');
+          final DateTime? localExp = expStr != null ? DateTime.tryParse(expStr) : null;
+          final bool localExpired = localExp != null && DateTime.now().isAfter(localExp);
+          if (cachedActive && !localExpired && sStatus != 'deleted' && sStatus != 'revoked') {
+            return 'active';
+          }
           await prefs.setBool('app_client_is_active', false);
           return sStatus.isNotEmpty ? sStatus : 'inactive';
         }

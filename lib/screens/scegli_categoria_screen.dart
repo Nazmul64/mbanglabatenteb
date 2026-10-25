@@ -406,9 +406,10 @@ class _ScegliCategoriaScreenState extends State<ScegliCategoriaScreen> {
                   Expanded(
                     child: Text(
                       cat.title,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 14,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,

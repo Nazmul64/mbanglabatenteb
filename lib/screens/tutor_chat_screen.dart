@@ -504,6 +504,9 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     final now = DateTime.now();
     final expiry = now.add(Duration(days: days > 0 ? days : 365));
 
+    final effectiveSessionId = _sessionId.isNotEmpty ? _sessionId : (prefs.getString('app_client_session_id') ?? '');
+    final effectivePhone = _userPhone.isNotEmpty ? _userPhone : (prefs.getString('app_client_phone') ?? '');
+
     // Zero-delay instant local activation (0ms)
     await prefs.setBool('app_client_is_active', true);
     await prefs.setBool('app_client_is_verified', true);
@@ -512,6 +515,10 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     if (licenseKey != null && licenseKey.isNotEmpty) {
       await prefs.setString('app_client_license_key', licenseKey);
       await prefs.setString('app_client_token', licenseKey);
+      ApiService.setAuthToken(licenseKey);
+    }
+    if (effectiveSessionId.isNotEmpty || effectivePhone.isNotEmpty) {
+      ApiService.setSessionContext(sessionId: effectiveSessionId, phone: effectivePhone);
     }
 
     if (mounted) {
@@ -532,8 +539,8 @@ class _TutorChatScreenState extends State<TutorChatScreen> {
     unawaited(() async {
       try {
         final res = await ApiService.activateClientLicense(
-          sessionId: _sessionId,
-          phone: _userPhone,
+          sessionId: effectiveSessionId,
+          phone: effectivePhone,
           days: days,
           licenseKey: licenseKey,
         );

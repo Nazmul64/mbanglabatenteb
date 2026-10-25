@@ -49,7 +49,10 @@ class DashboardScreen extends StatefulWidget {
     this.onTapWrongQuestions,
     this.onTapSupport,
     this.onTapManuale,
+    this.onTapSchedaEsame,
   });
+
+  final VoidCallback? onTapSchedaEsame;
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -99,7 +102,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (key.contains('quote') || key.contains('argomenti')) return widget.onTapQuotes;
     if (key.contains('text') || key.contains('eclass') || key.contains('e_class')) return widget.onTapTextAnalyzer;
     if (key.contains('sfida')) return widget.onTapSfida;
-    if (key.contains('quiz') || key.contains('scheda')) return widget.onTapQuiz;
+    if (key.contains('scheda')) return widget.onTapSchedaEsame ?? widget.onTapQuiz;
+    if (key.contains('quiz')) return widget.onTapQuiz;
     
     // Card 7 vs Card 18
     if (key == 'word' || key == 'words' || key == 'word_list' || key == 'vocab') return widget.onTapWords ?? widget.onTapDictionary;
@@ -112,7 +116,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (key.contains('correct')) return widget.onTapCorrectQuestions ?? widget.onTapSavedQuestions;
     if (key.contains('wrong')) return widget.onTapWrongQuestions ?? widget.onTapSavedQuestions;
     if (key.contains('support')) return widget.onTapSupport ?? widget.onTapProfile;
-    if (key.contains('performer') || key.contains('top') || key.contains('ranking')) return widget.onTapProfile;
+    if (key.contains('performer') || key.contains('top') || key.contains('ranking')) return widget.onTapSchedaEsame ?? widget.onTapProfile;
     return widget.onTapTutorials;
   }
 

@@ -656,7 +656,7 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
                       value: val,
                       child: Text(
                         val,
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569)),
                         overflow: TextOverflow.ellipsis,
                       ),
                     );
@@ -699,7 +699,7 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
                       value: val,
                       child: Text(
                         val,
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569)),
                         overflow: TextOverflow.ellipsis,
                       ),
                     );
@@ -932,11 +932,11 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
     if (quiz.showBangla) {
       return Text(
         rawText,
-        style: TextStyle(
-          fontSize: 14.5,
+        style: const TextStyle(
+          fontSize: 15.5,
           fontWeight: FontWeight.w600,
           height: 1.45,
-          color: Colors.green.shade700,
+          color: Color(0xFF15803D),
         ),
       );
     }
@@ -944,8 +944,10 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
     final spans = HtmlTextHelper.buildParsedStatementSpans(
       statement: rawText,
       isDark: isDark,
-      fontSize: 14.5,
+      fontSize: 16.0,
       height: 1.45,
+      textColor: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155),
+      underlineColor: isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569),
       vocabulary: quiz.vocabulary,
       onTapWord: (rawWord, cleanWord) {
         String? vocabImage;
@@ -1060,9 +1062,9 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
                       Text(
                         quiz.id,
                         style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: quiz.isSelected ? const Color(0xFF16A34A) : (isDark ? Colors.white : Colors.black87),
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: quiz.isSelected ? const Color(0xFF16A34A) : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569)),
                         ),
                       ),
                       if (quiz.isSelected) ...[
@@ -1073,27 +1075,17 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
                   ),
                   Row(
                     children: [
-                      // Answer Pill (VERO / FALSO) when Eye button is clicked
+                      // Prominent V / F badge matching reference app screenshot
                       if (quiz.showAnswer) ...[
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          margin: const EdgeInsets.only(right: 6),
-                          decoration: BoxDecoration(
-                            color: quiz.isVero
-                                ? const Color(0xFF22C55E).withOpacity(0.15)
-                                : Colors.red.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: quiz.isVero ? const Color(0xFF22C55E) : Colors.red,
-                              width: 1.2,
-                            ),
-                          ),
+                          margin: const EdgeInsets.only(right: 8),
                           child: Text(
-                            quiz.isVero ? 'VERO (সঠিক) ✓' : 'FALSO (মিথ্যা) ✗',
+                            quiz.isVero ? 'V' : 'F',
                             style: TextStyle(
-                              fontSize: 11,
+                              fontSize: 24,
                               fontWeight: FontWeight.w900,
-                              color: quiz.isVero ? const Color(0xFF16A34A) : Colors.red.shade700,
+                              color: quiz.isVero ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
+                              letterSpacing: 0.5,
                             ),
                           ),
                         ),
@@ -1197,10 +1189,10 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
                           Icon(
                             quiz.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
                             size: 16,
-                            color: Colors.black87,
+                            color: isDark ? Colors.white : const Color(0xFF1E293B),
                           ),
                           const SizedBox(width: 2),
-                          const Text('বাংলা', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                          Text('বাংলা', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1E293B))),
                         ],
                       ),
                     ),
@@ -1416,7 +1408,7 @@ class _QuizPracticeScreenState extends State<QuizPracticeScreen> {
                   children: [
                     Text(
                       '(TU) Hai risposto:',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white70 : Colors.black87),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569)),
                     ),
                     const SizedBox(height: 4),
                     Row(

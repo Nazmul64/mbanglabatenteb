@@ -417,8 +417,9 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
   void _showExamResultModal(List<ExamResultItem> results, int giustoCount, int sbagliatoCount, int nonDateCount) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final total = results.length > 0 ? results.length : 30;
-    final isPassed = sbagliatoCount <= 3 && nonDateCount == 0;
+    final total = results.isNotEmpty ? results.length : 30;
+    // User Rule: 27+ correct (out of 30) is Promosso/Pass (27, 28, 29, 30). 26 or less is Bocciato/Fail.
+    final isPassed = total >= 30 ? (giustoCount >= 27) : (total > 0 && giustoCount >= (total * 0.9).floor());
 
     showDialog(
       context: context,
@@ -1265,7 +1266,7 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
         title: const Text('mbanglabatenteb', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         centerTitle: true,
         backgroundColor: isDark ? const Color(0xFF121829) : Colors.white,
-        foregroundColor: isDark ? Colors.white : Colors.black87,
+        foregroundColor: isDark ? Colors.white : const Color(0xFF1E293B),
         elevation: 0.5,
         leading: Container(
           margin: const EdgeInsets.all(8),
@@ -1369,7 +1370,7 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                                   color: isSelected
                                       ? Colors.white
                                       : (isAvailable
-                                          ? (isDark ? Colors.white70 : Colors.black54)
+                                          ? (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B))
                                           : Colors.grey.shade400),
                                 ),
                               ),
@@ -1454,7 +1455,7 @@ class _ExamSimulationScreenState extends State<ExamSimulationScreen> {
                                   fontWeight: FontWeight.bold,
                                   color: (isCurrent || isAnswered)
                                       ? Colors.white
-                                      : (isDark ? Colors.white70 : Colors.black87),
+                                      : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569)),
                                 ),
                               ),
                             ),
