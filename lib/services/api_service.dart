@@ -515,11 +515,12 @@ class ApiService {
     if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
       try {
         final decoded = json.decode(response.body);
-        if (decoded is Map<String, dynamic>) {
-          if (decoded['data'] is Map<String, dynamic>) {
-            return decoded['data'] as Map<String, dynamic>;
+        if (decoded is Map) {
+          final map = Map<String, dynamic>.from(decoded);
+          if (map['data'] is Map) {
+            return Map<String, dynamic>.from(map['data'] as Map);
           }
-          return decoded;
+          return map;
         } else if (decoded is List) {
           return {'results': decoded};
         }

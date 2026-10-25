@@ -591,9 +591,19 @@ class BookmarkManager {
 
       loggedAnswers.add({
         'question_id': item.id,
+        'id': item.id,
         'question_type': qType,
+        'type': qType,
+        'italian': item.italian,
+        'bangla': item.bangla,
+        'statement': item.italian,
+        'translation': item.bangla,
+        'is_vero': item.isVero,
         'user_answer': userAnswerStr,
         'is_correct': item.isCorrect,
+        'image': item.image,
+        'audio': item.audio,
+        'vocabulary': item.vocabulary,
       });
     }
 

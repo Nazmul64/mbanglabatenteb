@@ -82,24 +82,29 @@ class _SchedaEsameListScreenState extends State<SchedaEsameListScreen> {
 
     try {
       final rawList = await ApiService.fetchPassedExams(query: _searchQuery);
+      const fakeNames = {
+        'tanvir ahmed',
+        'rashidul islam',
+        'farhana akter',
+        'md. nazmul hassan',
+      };
+
       if (mounted) {
         setState(() {
           _exams = rawList.map((item) {
-            if (item is Map<String, dynamic>) {
-              return PassedExamSummary.fromJson(item);
-            } else if (item is Map) {
+            if (item is Map) {
               return PassedExamSummary.fromJson(Map<String, dynamic>.from(item));
             }
             return PassedExamSummary(
               id: 0,
-              studentName: 'Candidato',
-              motorizzazione: 'Motorizzazione',
+              studentName: '',
+              motorizzazione: '',
               examDate: '',
               correctCount: 27,
               wrongCount: 3,
               unansweredCount: 0,
             );
-          }).where((e) => e.id > 0 || e.studentName.isNotEmpty).toList();
+          }).where((e) => e.id > 0 && e.studentName.trim().isNotEmpty && !fakeNames.contains(e.studentName.trim().toLowerCase())).toList();
           _isLoading = false;
         });
       }
@@ -586,14 +591,14 @@ class _SchedaEsameListScreenState extends State<SchedaEsameListScreen> {
 class PassedExamQuestionItem {
   final int id;
   final int index;
-  final String italian;
-  final String bangla;
+  String italian;
+  String bangla;
   final bool isVero;
   final String? userAnswer;
   final bool isUserCorrect;
-  final String? image;
-  final String? audio;
-  final List<dynamic>? vocabulary;
+  String? image;
+  String? audio;
+  List<dynamic>? vocabulary;
   bool isSelected;
   bool isRevealed;
 
@@ -667,7 +672,16 @@ class _PassedExamQuestionsScreenState extends State<PassedExamQuestionsScreen> {
 
     try {
       final details = await ApiService.fetchExamSheetDetails(widget.examSummary.id);
-      final rawList = (details != null && details['questions'] is List) ? details['questions'] as List : [];
+      List rawList = [];
+      if (details != null) {
+        if (details['questions'] is List && (details['questions'] as List).isNotEmpty) {
+          rawList = details['questions'] as List;
+        } else if (details['answers'] is List && (details['answers'] as List).isNotEmpty) {
+          rawList = details['answers'] as List;
+        } else if (details['data'] is List && (details['data'] as List).isNotEmpty) {
+          rawList = details['data'] as List;
+        }
+      }
 
       if (mounted) {
         setState(() {
@@ -675,29 +689,86 @@ class _PassedExamQuestionsScreenState extends State<PassedExamQuestionsScreen> {
           for (int i = 0; i < rawList.length; i++) {
             final q = rawList[i];
             if (q is Map) {
-              final statement = (q['italian'] ?? q['question'] ?? q['domanda'] ?? '').toString();
-              final bangla = (q['bangla'] ?? q['bn_question'] ?? q['translation'] ?? '').toString();
+              final int qId = q['id'] is int ? q['id'] : int.tryParse('${q['id']}') ?? (i + 1);
+              String statement = (q['italian'] ?? q['question'] ?? q['domanda'] ?? '').toString().trim();
+              String bangla = (q['bangla'] ?? q['bn_question'] ?? q['translation'] ?? '').toString().trim();
+              String? image = q['image']?.toString();
+              String? audio = q['audio']?.toString() ?? q['voice']?.toString();
+              List<dynamic>? vocab = q['vocabulary'] is List ? q['vocabulary'] : null;
+
+              if (statement.isEmpty) {
+                statement = 'Domanda n. ${i + 1} (Quiz Patente B)';
+              }
+
               final rawIsVero = q['is_vero'] ?? q['correct_answer'];
               final isVero = (rawIsVero == 1 || rawIsVero == true || rawIsVero == '1' || strtolower(rawIsVero.toString()) == 'vero');
               final uAns = q['user_answer']?.toString();
               final isCorrect = q['is_correct'] == true || q['is_correct'] == 1 || (uAns != null && uAns.toUpperCase() == (isVero ? 'V' : 'F'));
 
               _questions.add(PassedExamQuestionItem(
-                id: q['id'] is int ? q['id'] : int.tryParse('${q['id']}') ?? (i + 1),
+                id: qId,
                 index: i + 1,
                 italian: statement,
                 bangla: bangla,
                 isVero: isVero,
                 userAnswer: uAns,
                 isUserCorrect: isCorrect,
-                image: q['image']?.toString(),
-                audio: q['audio']?.toString() ?? q['voice']?.toString(),
-                vocabulary: q['vocabulary'] is List ? q['vocabulary'] : null,
+                image: image,
+                audio: audio,
+                vocabulary: vocab,
               ));
             }
           }
           _isLoading = false;
         });
+
+        // Auto-enrich any questions missing text/translations by IDs
+        final missingIds = _questions
+            .where((item) => item.italian.startsWith('Domanda n.') || item.bangla.isEmpty)
+            .map((item) => item.id)
+            .where((id) => id > 0)
+            .toSet()
+            .toList();
+
+        if (missingIds.isNotEmpty) {
+          try {
+            final fetched = await ApiService.fetchQuestionsByIds(missingIds);
+            if (fetched.isNotEmpty && mounted) {
+              final Map<int, Map<String, dynamic>> enrichedMap = {};
+              for (var f in fetched) {
+                if (f is Map) {
+                  final id = f['id'] is int ? f['id'] : int.tryParse('${f['id']}');
+                  if (id != null) {
+                    enrichedMap[id] = Map<String, dynamic>.from(f);
+                  }
+                }
+              }
+
+              setState(() {
+                for (var qItem in _questions) {
+                  final enriched = enrichedMap[qItem.id];
+                  if (enriched != null) {
+                    final it = (enriched['italian'] ?? enriched['question'] ?? '').toString().trim();
+                    final bn = (enriched['bangla'] ?? enriched['bn_question'] ?? '').toString().trim();
+                    if (it.isNotEmpty) qItem.italian = it;
+                    if (bn.isNotEmpty) qItem.bangla = bn;
+                    if (qItem.image == null && enriched['image'] != null) {
+                      qItem.image = enriched['image'].toString();
+                    }
+                    if (qItem.audio == null && (enriched['audio'] != null || enriched['voice'] != null)) {
+                      qItem.audio = (enriched['audio'] ?? enriched['voice'])?.toString();
+                    }
+                    if (qItem.vocabulary == null && enriched['vocabulary'] is List) {
+                      qItem.vocabulary = enriched['vocabulary'] as List;
+                    }
+                  }
+                }
+              });
+            }
+          } catch (enrichErr) {
+            debugPrint('Error enriching questions: $enrichErr');
+          }
+        }
       }
     } catch (e) {
       debugPrint('Error loading exam questions: $e');
@@ -951,10 +1022,38 @@ class _PassedExamQuestionsScreenState extends State<PassedExamQuestionsScreen> {
                             valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF22C55E)),
                           ),
                         )
-                      : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 90),
-                          itemCount: _questions.length,
-                          itemBuilder: (context, index) {
+                      : _questions.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.quiz_outlined, size: 48, color: isDark ? Colors.white30 : Colors.black26),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'কোনো প্রশ্ন লোড করা যায়নি',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  ElevatedButton.icon(
+                                    onPressed: _loadQuestions,
+                                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                                    label: const Text('পুনরায় চেষ্টা করুন'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF22C55E),
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.fromLTRB(14, 12, 14, 90),
+                              itemCount: _questions.length,
+                              itemBuilder: (context, index) {
                             final q = _questions[index];
                             return _buildQuestionCard(q, isDark);
                           },
