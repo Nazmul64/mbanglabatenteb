@@ -1010,6 +1010,29 @@ class ApiService {
     }
   }
 
+  /// GET /api/v1/live-passed-exams
+  static Future<List<dynamic>> fetchLivePassedExams({String? search, String? status}) async {
+    try {
+      final queryParams = <String, String>{};
+      if (search != null && search.trim().isNotEmpty) {
+        queryParams['search'] = search.trim();
+      }
+      if (status != null && status.trim().isNotEmpty && status != 'all') {
+        queryParams['status'] = status.trim();
+      }
+
+      final response = await _getWithFallback(
+        '/live-passed-exams',
+        queryParameters: queryParams.isNotEmpty ? queryParams : null,
+        useCache: false,
+      );
+      return _extractList(response);
+    } catch (e) {
+      debugPrint('Error fetching live passed exams: $e');
+      return [];
+    }
+  }
+
   // ─────────────────────────────────────────────────────
   // 📌 8. Sfida Speed Challenge API
   // ─────────────────────────────────────────────────────

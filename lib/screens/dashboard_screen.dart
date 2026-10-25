@@ -50,9 +50,11 @@ class DashboardScreen extends StatefulWidget {
     this.onTapSupport,
     this.onTapManuale,
     this.onTapSchedaEsame,
+    this.onTapLivePassedExams,
   });
 
   final VoidCallback? onTapSchedaEsame;
+  final VoidCallback? onTapLivePassedExams;
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -102,7 +104,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (key.contains('quote') || key.contains('argomenti')) return widget.onTapQuotes;
     if (key.contains('text') || key.contains('eclass') || key.contains('e_class')) return widget.onTapTextAnalyzer;
     if (key.contains('sfida')) return widget.onTapSfida;
-    if (key.contains('scheda')) return widget.onTapSchedaEsame ?? widget.onTapQuiz;
+    if (key.contains('scheda') || key.contains('live_exam') || key.contains('live-exam') || key.contains('passed-exam') || key.contains('passed_exam')) return widget.onTapSchedaEsame ?? widget.onTapQuiz;
     if (key.contains('quiz')) return widget.onTapQuiz;
     
     // Card 7 vs Card 18
@@ -347,9 +349,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     'text_analyzer': 'অনলাইন ক্লাস',
     'sfida': 'চ্যালেঞ্জ',
     'challenge': 'চ্যালেঞ্জ',
-    'scheda': 'পরীক্ষার শিট',
-    'scheda-esame': 'পরীক্ষার শিট',
-    'scheda_esame': 'পরীক্ষার শিট',
+    'scheda': 'পাস করা পরীক্ষার শিট',
+    'scheda-esame': 'পাস করা পরীক্ষার শিট',
+    'scheda_esame': 'পাস করা পরীক্ষার শিট',
+    'scheda-live-exam': 'লাইভ পাস এক্সাম',
+    'live-passed-exams': 'লাইভ পাস এক্সাম',
+    'live_passed_exams': 'লাইভ পাস এক্সাম',
     'quiz': 'পরীক্ষার শিট',
     'word': 'শব্দ তালিকা',
     'words': 'শব্দ তালিকা',

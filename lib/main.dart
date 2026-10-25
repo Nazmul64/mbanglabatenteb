@@ -19,6 +19,7 @@ import 'screens/translation_screen.dart';
 import 'screens/qr_scanner_dialog.dart';
 import 'screens/app_navigation_drawer.dart';
 import 'screens/scheda_esame_list_screen.dart';
+import 'screens/live_passed_exams_screen.dart';
 import 'services/api_service.dart';
 import 'models/bookmark_manager.dart';
 
@@ -400,7 +401,7 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   }
 
   void _navigateToSchedaEsameList() {
-    _navigateToWithLoader(const SchedaEsameListScreen(), title: 'SCHEDA ESAME (পাস করা শিট) লোড হচ্ছে...', isProtected: true);
+    _navigateToWithLoader(const LivePassedExamsScreen(), title: 'SCHEDA ESAME (পাস করা শিট) লোড হচ্ছে...', isProtected: false);
   }
 
   void _navigateToDictionary() {
